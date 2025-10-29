@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"log/slog"
+	"reflect"
 
 	"github.com/quenbyako/core/internal"
 	"github.com/quenbyako/core/secrets"
@@ -48,6 +49,15 @@ import (
 // recommended to keep it private.
 func RegisterEnvParser[T any](f func(context.Context, string) (T, error)) {
 	internal.RegisterEnvParser(f)
+}
+
+func GetParseFunc(typ reflect.Type) (f func(context.Context, string) (any, error), ptrDepth int, ok bool) {
+	return internal.GetParseFunc(typ)
+}
+
+// Deprecated: This is a temporary function to aid migration. Use [GetParseFunc] instead.
+func GetAllParseFunc() map[reflect.Type]func(context.Context, string) (any, error) {
+	return internal.GetAllParseFunc()
 }
 
 // EnvParam models a lifecycle-aware configurable entity exposed through

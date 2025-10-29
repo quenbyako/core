@@ -8,7 +8,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/quenbyako/core/internal"
+	"github.com/quenbyako/core"
 )
 
 // fieldParams contains information about parsed field tags.
@@ -168,7 +168,7 @@ func setValue(ctx context.Context, v reflect.Value, p parseParams, f fieldParams
 	}
 
 	typ := v.Type() // f.typ
-	parserFunc, ptrDepth, ok := internal.GetParseFunc(typ)
+	parserFunc, ptrDepth, ok := core.GetParseFunc(typ)
 	_ = ptrDepth // TODO: pointer restoration
 	if ok {
 		val, err := parserFunc(ctx, value)
@@ -244,7 +244,7 @@ func setSlice(ctx context.Context, field reflect.Value, value string, f fieldPar
 	}
 
 	itemType := field.Type().Elem()
-	parserFunc, ptrDepth, ok := internal.GetParseFunc(itemType)
+	parserFunc, ptrDepth, ok := core.GetParseFunc(itemType)
 	if !ok {
 		// TODO: allow nested slices, cause in some rarest cases it may be useful
 		panic(fmt.Sprintf("no parser found for %T", itemType))
@@ -299,11 +299,11 @@ func setMap(ctx context.Context, field reflect.Value, value string, f fieldParam
 	keyType := field.Type().Key()
 	elemType := field.Type().Elem()
 
-	keyParserFunc, keyPtrDepth, ok := internal.GetParseFunc(keyType)
+	keyParserFunc, keyPtrDepth, ok := core.GetParseFunc(keyType)
 	if !ok {
 		panic(fmt.Sprintf("no parser found for map key type %v", keyType))
 	}
-	elemParserFunc, elemPtrDepth, ok := internal.GetParseFunc(elemType)
+	elemParserFunc, elemPtrDepth, ok := core.GetParseFunc(elemType)
 	if !ok {
 		panic(fmt.Sprintf("no parser found for map elem type %v", elemType))
 	}

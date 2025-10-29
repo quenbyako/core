@@ -1,15 +1,13 @@
-module github.com/quenbyako/mongoose/contrib/secrets
+module github.com/quenbyako/core/contrib/secrets
 
 go 1.25.1
-
-replace github.com/quenbyako/core => ../../../layout-core
 
 require (
 	github.com/hashicorp/go-retryablehttp v0.7.8
 	github.com/hashicorp/vault/api v1.22.0
 	github.com/hashicorp/vault/api/auth/cert v0.0.0-20251024190220-ef86fe09c40b
 	github.com/joho/godotenv v1.5.1
-	github.com/quenbyako/core v0.0.0-00010101000000-000000000000
+	github.com/quenbyako/core v0.0.0-20251029202448-5006b7879ea1
 	github.com/vincent-petithory/dataurl v1.0.0
 )
 
