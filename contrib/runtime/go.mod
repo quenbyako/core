@@ -3,6 +3,8 @@ module github.com/quenbyako/core/contrib/runtime
 go 1.25.1
 
 require (
+	github.com/quenbyako/core v0.0.0-20251029203541-cae76b4a37d4
+	github.com/quenbyako/core/contrib/secrets v0.0.0-20251029203541-cae76b4a37d4
 	go.opentelemetry.io/otel/metric v1.38.0
 	go.opentelemetry.io/otel/trace v1.38.0
 )
@@ -38,7 +40,6 @@ require (
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.38.0 // indirect
 	go.opentelemetry.io/otel/sdk v1.38.0 // indirect
 	go.opentelemetry.io/proto/otlp v1.8.0 // indirect
-	golang.org/x/crypto v0.43.0 // indirect
 	golang.org/x/mod v0.29.0 // indirect
 	golang.org/x/net v0.46.0 // indirect
 	golang.org/x/sys v0.37.0 // indirect
