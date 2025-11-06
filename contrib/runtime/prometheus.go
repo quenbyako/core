@@ -83,12 +83,20 @@ func parsePromhttpExporter(uri *url.URL) (*promhttpWrapper, error) {
 }
 
 func (g *promhttpWrapper) configure(ctx context.Context, log LogCallbacks) error {
+	if g == nil {
+		return nil
+	}
+
 	g.log = log
 
 	return nil
 }
 
 func (g *promhttpWrapper) acquire(ctx context.Context) (err error) {
+	if g == nil {
+		return nil
+	}
+
 	listenConfig := &net.ListenConfig{
 		Control:   nil,
 		KeepAlive: 0,
@@ -131,6 +139,10 @@ func (g *promhttpWrapper) acquire(ctx context.Context) (err error) {
 }
 
 func (g *promhttpWrapper) shutdown(ctx context.Context) (err error) {
+	if g == nil {
+		return nil
+	}
+
 	timeoutCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Minute)
 	defer cancel()
 
