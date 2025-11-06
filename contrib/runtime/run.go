@@ -14,9 +14,9 @@ import (
 	"github.com/quenbyako/core"
 	"github.com/quenbyako/core/contrib/runtime/env"
 	envold "github.com/quenbyako/core/contrib/runtime/envold"
+	"github.com/quenbyako/core/contrib/runtime/observability"
 	"github.com/quenbyako/core/contrib/secrets"
 	"github.com/quenbyako/core/internal"
-	"github.com/quenbyako/core/observability"
 )
 
 const alternativeLib = false
@@ -104,6 +104,14 @@ func Run[T core.ActionConfig](action core.ActionFunc[T]) func(context.Context, [
 		if u := config.GetTraceEndpoint(); u != nil {
 			opts = append(opts, observability.WithOtelAddr(u))
 		}
+		var metricServer *promhttpWrapper
+		if addr := config.GetMetricsAddr(); addr != nil {
+			metricServer, err = parsePromhttpExporter(addr)
+			if err != nil {
+				panic(fmt.Errorf("parsing metrics address %q: %w", addr, err))
+			}
+			opts = append(opts, observability.WithMetricReader(metricServer.reader))
+		}
 
 		m, err := observability.New(ctx, opts...)
 		if err != nil {
@@ -121,30 +129,46 @@ func Run[T core.ActionConfig](action core.ActionFunc[T]) func(context.Context, [
 		}
 
 		// configuring
-		var errs []error
+		var configErrs []error
 		configurations := activeParams()
 
+		// metrics server has quite specific configuration, so separating it out
+		// of other params
+		if err := metricServer.configure(ctx, log); err != nil {
+			configErrs = append(configErrs, fmt.Errorf("configuring metric server: %w", err))
+		}
 		for _, v := range configurations {
 			if err := v.Configure(ctx, &cfgData); err != nil {
-				errs = append(errs, err)
+				configErrs = append(configErrs, err)
 			}
 		}
 
-		if len(errs) > 0 {
-			for _, err := range errs {
+		if len(configErrs) > 0 {
+			for _, err := range configErrs {
 				fmt.Fprintf(os.Stderr, "configuration error: %v\n", err)
 			}
 			return 1
 		}
 
-		acquireData := core.AcquireData{
-			ConfigureData: cfgData,
-		}
+		acquireData := core.AcquireData{}
 
+		var acquireErrs []error
+
+		if err := metricServer.acquire(ctx); err != nil {
+			acquireErrs = append(acquireErrs, fmt.Errorf("acquiring metric server: %w", err))
+		}
 		for _, v := range configurations {
 			if err := v.Acquire(ctx, &acquireData); err != nil {
-				panic(fmt.Errorf("configuring %T: %w", v, err))
+				acquireErrs = append(acquireErrs, fmt.Errorf("acquiring %T: %w", v, err))
 			}
+		}
+
+		if len(acquireErrs) > 0 {
+			for _, err := range acquireErrs {
+				fmt.Fprintf(os.Stderr, "acquiring resources: %v\n", err)
+			}
+
+			return 1
 		}
 
 		code := action(ctx, &appCtx[T]{
@@ -158,14 +182,25 @@ func Run[T core.ActionConfig](action core.ActionFunc[T]) func(context.Context, [
 			version:    version,
 		})
 
-		shutdownData := core.ShutdownData{
-			AcquireData: acquireData,
-		}
+		shutdownData := core.ShutdownData{}
 
+		var shutdownErrs []error
+
+		if err := metricServer.shutdown(ctx); err != nil {
+			shutdownErrs = append(shutdownErrs, fmt.Errorf("shutting down metric server: %w", err))
+		}
 		for _, v := range configurations {
 			if err := v.Shutdown(ctx, &shutdownData); err != nil {
-				panic(fmt.Errorf("shutting down %T: %w", v, err))
+				shutdownErrs = append(shutdownErrs, err)
 			}
+		}
+
+		if len(shutdownErrs) > 0 {
+			for _, err := range shutdownErrs {
+				fmt.Fprintf(os.Stderr, "shutdown error: %v\n", err)
+			}
+
+			return 1
 		}
 
 		return code

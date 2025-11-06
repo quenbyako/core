@@ -88,12 +88,10 @@ type ConfigureData struct {
 // (e.g., binding network listeners). Additional runtime derived fields can
 // be layered in future without breaking implementers.
 type AcquireData struct {
-	ConfigureData
 }
 
 // ShutdownData inherits acquisition context for graceful teardown.
 // Implementations should attempt best-effort cleanup returning rich
 // errors rather than panicking.
 type ShutdownData struct {
-	AcquireData
 }

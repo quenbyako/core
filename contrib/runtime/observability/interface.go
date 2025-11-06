@@ -9,14 +9,13 @@ import (
 	"net/url"
 	"time"
 
-	// 	"github.com/prometheus/client_golang/prometheus"
-	// 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/quenbyako/core"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
 	"go.opentelemetry.io/otel/metric"
 	noopMetric "go.opentelemetry.io/otel/metric/noop"
-	// sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/semconv/v1.37.0"
@@ -31,11 +30,12 @@ type metrics struct {
 }
 
 type newParams struct {
-	logWriter  io.Writer
-	otelAddr   *url.URL
-	hostname   string
-	appVersion core.AppVersion
-	logLevel   slog.Level
+	logWriter    io.Writer
+	otelAddr     *url.URL
+	metricReader sdkmetric.Reader
+	hostname     string
+	appVersion   core.AppVersion
+	logLevel     slog.Level
 }
 
 func (p *newParams) validate() error {
@@ -62,6 +62,10 @@ func WithOtelAddr(otelAddr *url.URL) NewOption {
 
 func WithHostname(hostname string) NewOption {
 	return func(m *newParams) { m.hostname = hostname }
+}
+
+func WithMetricReader(reader sdkmetric.Reader) NewOption {
+	return func(m *newParams) { m.metricReader = reader }
 }
 
 // New creates a new observability Metrics instance
@@ -115,10 +119,18 @@ func New(ctx context.Context, opts ...NewOption) (core.Metrics, error) {
 		return nil, fmt.Errorf("failed to create trace provider: %w", err)
 	}
 
+	var meterProvider metric.MeterProvider = noopMetric.NewMeterProvider()
+	if params.metricReader != nil {
+		meterProvider = sdkmetric.NewMeterProvider(
+			sdkmetric.WithResource(appResource),
+			sdkmetric.WithReader(params.metricReader),
+		)
+	}
+
 	return &metrics{
 		Handler:        logHandler,
 		TracerProvider: tracerProvider,
-		MeterProvider:  noopMetric.NewMeterProvider(),
+		MeterProvider:  meterProvider,
 	}, nil
 }
 

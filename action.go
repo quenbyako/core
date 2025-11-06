@@ -48,12 +48,12 @@ type UnimplementedActionConfig struct {
 
 var _ ActionConfig = (*UnimplementedActionConfig)(nil) //nolint:grouper // type check
 
-func (u UnimplementedActionConfig) GetLogLevel() slog.Level             { return slog.LevelInfo }
-func (u UnimplementedActionConfig) GetCertPaths() []string              { return nil }
-func (u UnimplementedActionConfig) ClientCertPaths() (cert, key string) { return "", "" }
-func (u UnimplementedActionConfig) GetSecretDSNs() map[string]*url.URL  { return nil }
-func (u UnimplementedActionConfig) GetTraceEndpoint() *url.URL          { return nil }
-func (u UnimplementedActionConfig) GetMetricsAddr() *url.URL            { return nil }
+func (UnimplementedActionConfig) GetLogLevel() slog.Level             { return slog.LevelInfo }
+func (UnimplementedActionConfig) GetCertPaths() []string              { return nil }
+func (UnimplementedActionConfig) ClientCertPaths() (cert, key string) { return "", "" }
+func (UnimplementedActionConfig) GetSecretDSNs() map[string]*url.URL  { return nil }
+func (UnimplementedActionConfig) GetTraceEndpoint() *url.URL          { return nil }
+func (UnimplementedActionConfig) GetMetricsAddr() *url.URL            { return nil }
 
 // ExitCode represents the process exit status produced by an ActionFunc. The
 // uint8 size mirrors conventional POSIX exit ranges (0–255) and communicates

@@ -1,6 +1,9 @@
 package runtime
 
-import "log/slog"
+import (
+	"log/slog"
+	"net"
+)
 
 const (
 	eventEffectiveEnvironment = "notify.effective_environment"
@@ -8,6 +11,8 @@ const (
 
 type LogCallbacks interface {
 	EffectiveEnvironment(env map[string]string)
+	MetricsStarted(addr net.Addr)
+	MetricsStopped(addr net.Addr)
 }
 
 type logger struct {
@@ -29,5 +34,23 @@ func (l *logger) EffectiveEnvironment(env map[string]string) {
 				"env": env,
 			},
 		),
+	)
+}
+
+func (l *logger) MetricsStarted(addr net.Addr) {
+	l.log.Info(
+		"Metrics server started",
+		slog.Any("context", map[string]any{
+			"addr": addr,
+		}),
+	)
+}
+
+func (l *logger) MetricsStopped(addr net.Addr) {
+	l.log.Info(
+		"Metrics server stopped",
+		slog.Any("context", map[string]any{
+			"addr": addr,
+		}),
 	)
 }
