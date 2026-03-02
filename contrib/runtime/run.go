@@ -54,7 +54,7 @@ func Run[T core.ActionConfig](action core.ActionFunc[T]) func(context.Context, [
 				if e := new(envold.VarIsNotSetError); errors.As(err, e) {
 					missedFields = append(missedFields, e.Key)
 				} else {
-					panic(fmt.Sprintf("%#v", err))
+					panic(fmt.Errorf("%w", err))
 				}
 			}
 

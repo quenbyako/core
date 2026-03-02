@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/quenbyako/core"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
 	"go.opentelemetry.io/otel/metric"
@@ -17,7 +18,6 @@ import (
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-	semconv "go.opentelemetry.io/otel/semconv/v1.37.0"
 	"go.opentelemetry.io/otel/trace"
 	noopTrace "go.opentelemetry.io/otel/trace/noop"
 )
@@ -94,12 +94,24 @@ func New(ctx context.Context, opts ...NewOption) (core.Metrics, error) {
 		return nil, fmt.Errorf("invalid parameters: %w", err)
 	}
 
+	// service.name             unknown_service:cynosure
+	// telemetry.sdk.language   go
+	// telemetry.sdk.name       opentelemetry
+	// telemetry.sdk.version    1.4.0
+	// schemaURL https://opentelemetry.io/schemas/1.39.0
+
+	const (
+		serviceNameKey = attribute.Key("service.name")
+		serviceVersionKey = attribute.Key("service.version")
+	)
+
 	appResource, err := resource.Merge(
 		resource.Default(),
-		resource.NewWithAttributes(
-			semconv.SchemaURL,
-			semconv.ServiceName(ignoreError(appName.Name())),
-			semconv.ServiceVersion(ignoreError(version.VersionCommit())),
+		// using schemaless to omit semconv differences.
+		// TODO: need to make custom resource creator for otel.
+		resource.NewSchemaless(
+			serviceNameKey.String(ignoreError(appName.Name())),
+			serviceVersionKey.String(ignoreError(version.VersionCommit())),
 		),
 	)
 	if err != nil {
