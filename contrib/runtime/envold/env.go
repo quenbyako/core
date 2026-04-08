@@ -1,6 +1,7 @@
 package env
 
 import (
+	"context"
 	"encoding"
 	"fmt"
 	"net/url"
@@ -12,76 +13,76 @@ import (
 )
 
 var defaultBuiltInParsers = map[reflect.Kind]ParserFunc{ //nolint:gochecknoglobals
-	reflect.Bool: func(v string) (any, error) {
+	reflect.Bool: func(_ context.Context, v string) (any, error) {
 		return strconv.ParseBool(v)
 	},
-	reflect.String: func(v string) (any, error) {
+	reflect.String: func(_ context.Context, v string) (any, error) {
 		return v, nil
 	},
-	reflect.Int: func(v string) (any, error) {
+	reflect.Int: func(_ context.Context, v string) (any, error) {
 		i, err := strconv.ParseInt(v, 10, 32)
 		return int(i), err
 	},
-	reflect.Int16: func(v string) (any, error) {
+	reflect.Int16: func(_ context.Context, v string) (any, error) {
 		i, err := strconv.ParseInt(v, 10, 16)
 		return int16(i), err
 	},
-	reflect.Int32: func(v string) (any, error) {
+	reflect.Int32: func(_ context.Context, v string) (any, error) {
 		i, err := strconv.ParseInt(v, 10, 32)
 		return int32(i), err
 	},
-	reflect.Int64: func(v string) (any, error) {
+	reflect.Int64: func(_ context.Context, v string) (any, error) {
 		return strconv.ParseInt(v, 10, 64)
 	},
-	reflect.Int8: func(v string) (any, error) {
+	reflect.Int8: func(_ context.Context, v string) (any, error) {
 		i, err := strconv.ParseInt(v, 10, 8)
 		return int8(i), err
 	},
-	reflect.Uint: func(v string) (any, error) {
+	reflect.Uint: func(_ context.Context, v string) (any, error) {
 		i, err := strconv.ParseUint(v, 10, 32)
 		return uint(i), err
 	},
-	reflect.Uint16: func(v string) (any, error) {
+	reflect.Uint16: func(_ context.Context, v string) (any, error) {
 		i, err := strconv.ParseUint(v, 10, 16)
 		return uint16(i), err
 	},
-	reflect.Uint32: func(v string) (any, error) {
+	reflect.Uint32: func(_ context.Context, v string) (any, error) {
 		i, err := strconv.ParseUint(v, 10, 32)
 		return uint32(i), err
 	},
-	reflect.Uint64: func(v string) (any, error) {
+	reflect.Uint64: func(_ context.Context, v string) (any, error) {
 		i, err := strconv.ParseUint(v, 10, 64)
 		return i, err
 	},
-	reflect.Uint8: func(v string) (any, error) {
+	reflect.Uint8: func(_ context.Context, v string) (any, error) {
 		i, err := strconv.ParseUint(v, 10, 8)
 		return uint8(i), err
 	},
-	reflect.Float64: func(v string) (any, error) {
+	reflect.Float64: func(_ context.Context, v string) (any, error) {
 		return strconv.ParseFloat(v, 64)
 	},
-	reflect.Float32: func(v string) (any, error) {
+	reflect.Float32: func(_ context.Context, v string) (any, error) {
 		f, err := strconv.ParseFloat(v, 32)
 		return float32(f), err
 	},
 }
 
-func defaultTypeParsers() func(reflect.Type) (ParserFunc, bool) {
-	return func(t reflect.Type) (ParserFunc, bool) {
+func defaultTypeParsers() func(reflect.Type) (f ParserFunc, ptrDepth int, ok bool) {
+	return func(t reflect.Type) (ParserFunc, int, bool) {
 		switch t {
 		case reflect.TypeFor[url.URL]():
-			return parseURL, true
+			return parseURL, 0, true
 		case reflect.TypeFor[time.Duration]():
-			return parseDuration, true
+			return parseDuration, 0, true
 		case reflect.TypeFor[time.Location]():
-			return parseLocation, true
+			return parseLocation, 0, true
 		default:
-			return nil, false
+			return nil, 0, false
 		}
 	}
 }
 
-func parseURL(v string) (any, error) {
+func parseURL(_ context.Context, v string) (any, error) {
 	u, err := url.Parse(v)
 	if err != nil {
 		return nil, newParseValueError("unable to parse URL", err)
@@ -89,7 +90,7 @@ func parseURL(v string) (any, error) {
 	return *u, nil
 }
 
-func parseDuration(v string) (any, error) {
+func parseDuration(_ context.Context, v string) (any, error) {
 	d, err := time.ParseDuration(v)
 	if err != nil {
 		return nil, newParseValueError("unable to parse duration", err)
@@ -97,7 +98,7 @@ func parseDuration(v string) (any, error) {
 	return d, err
 }
 
-func parseLocation(v string) (any, error) {
+func parseLocation(_ context.Context, v string) (any, error) {
 	loc, err := time.LoadLocation(v)
 	if err != nil {
 		return nil, newParseValueError("unable to parse location", err)
@@ -107,13 +108,14 @@ func parseLocation(v string) (any, error) {
 
 // ParserFunc defines the signature of a function that can be used within
 // `Options`' `FuncMap`.
-type ParserFunc func(v string) (any, error)
+type ParserFunc = func(ctx context.Context, v string) (any, error)
 
 // OnSetFn is a hook that can be run when a value is set.
 type OnSetFn func(tag string, value any, isDefault bool)
 
 // processFieldFn is a function which takes all information about a field and processes it.
 type processFieldFn func(
+	ctx context.Context,
 	refField reflect.Value,
 	refTypeField reflect.StructField,
 	opts newParams,
@@ -122,15 +124,15 @@ type processFieldFn func(
 
 // Parse parses a struct containing `env` tags and loads its values from
 // environment variables.
-func Parse(v any, opts ...NewOption) error {
-	return parseInternal(v, setField, defaultOptions(opts...))
+func Parse(ctx context.Context, v any, opts ...NewOption) error {
+	return parseInternal(ctx, v, setField, defaultOptions(opts...))
 }
 
 // ParseAs parses the given struct type containing `env` tags and loads its
 // values from environment variables.
-func ParseAs[T any](opts ...NewOption) (T, error) {
+func ParseAs[T any](ctx context.Context, opts ...NewOption) (T, error) {
 	var t T
-	err := Parse(&t, opts...)
+	err := Parse(ctx, &t, opts...)
 	return t, err
 }
 
@@ -144,11 +146,12 @@ func Must[T any](t T, err error) T {
 
 // GetFieldParams parses a struct containing `env` tags and returns information about
 // tags it found.
-func GetFieldParams(v any, opts ...NewOption) ([]FieldParams, error) {
+func GetFieldParams(ctx context.Context, v any, opts ...NewOption) ([]FieldParams, error) {
 	var result []FieldParams
 	err := parseInternal(
+		ctx,
 		v,
-		func(_ reflect.Value, _ reflect.StructField, _ newParams, fieldParams FieldParams) error {
+		func(_ context.Context, _ reflect.Value, _ reflect.StructField, _ newParams, fieldParams FieldParams) error {
 			if fieldParams.OwnKey != "" {
 				result = append(result, fieldParams)
 			}
@@ -163,7 +166,7 @@ func GetFieldParams(v any, opts ...NewOption) ([]FieldParams, error) {
 	return result, nil
 }
 
-func parseInternal(v any, processField processFieldFn, opts newParams) error {
+func parseInternal(ctx context.Context, v any, processField processFieldFn, opts newParams) error {
 	ptrRef := reflect.ValueOf(v)
 	if ptrRef.Kind() != reflect.Ptr {
 		return newAggregateError(NotStructPtrError{})
@@ -173,10 +176,10 @@ func parseInternal(v any, processField processFieldFn, opts newParams) error {
 		return newAggregateError(NotStructPtrError{})
 	}
 
-	return doParse(ref, processField, opts)
+	return doParse(ctx, ref, processField, opts)
 }
 
-func doParse(ref reflect.Value, processField processFieldFn, opts newParams) error {
+func doParse(ctx context.Context, ref reflect.Value, processField processFieldFn, opts newParams) error {
 	refType := ref.Type()
 
 	var agrErr AggregateError
@@ -185,7 +188,7 @@ func doParse(ref reflect.Value, processField processFieldFn, opts newParams) err
 		refField := ref.Field(i)
 		refTypeField := refType.Field(i)
 
-		if err := doParseField(refField, refTypeField, processField, opts); err != nil {
+		if err := doParseField(ctx, refField, refTypeField, processField, opts); err != nil {
 			if val, ok := err.(AggregateError); ok {
 				agrErr.Errors = append(agrErr.Errors, val.Errors...)
 			} else {
@@ -202,6 +205,7 @@ func doParse(ref reflect.Value, processField processFieldFn, opts newParams) err
 }
 
 func doParseField(
+	ctx context.Context,
 	refField reflect.Value,
 	refTypeField reflect.StructField,
 	processField processFieldFn,
@@ -211,10 +215,10 @@ func doParseField(
 		return nil
 	}
 	if refField.Kind() == reflect.Ptr && refField.Elem().Kind() == reflect.Struct && !refField.IsNil() {
-		return parseInternal(refField.Interface(), processField, optionsWithEnvPrefix(refTypeField, opts))
+		return parseInternal(ctx, refField.Interface(), processField, optionsWithEnvPrefix(refTypeField, opts))
 	}
 	if refField.Kind() == reflect.Struct && refField.CanAddr() && refField.Type().Name() == "" {
-		return parseInternal(refField.Addr().Interface(), processField, optionsWithEnvPrefix(refTypeField, opts))
+		return parseInternal(ctx, refField.Addr().Interface(), processField, optionsWithEnvPrefix(refTypeField, opts))
 	}
 
 	params, err := parseFieldParams(refTypeField, opts)
@@ -226,7 +230,7 @@ func doParseField(
 		return nil
 	}
 
-	if err := processField(refField, refTypeField, opts, params); err != nil {
+	if err := processField(ctx, refField, refTypeField, opts, params); err != nil {
 		return err
 	}
 
@@ -236,11 +240,11 @@ func doParseField(
 	}
 
 	if refField.Kind() == reflect.Struct {
-		return doParse(refField, processField, optionsWithEnvPrefix(refTypeField, opts))
+		return doParse(ctx, refField, processField, optionsWithEnvPrefix(refTypeField, opts))
 	}
 
 	if isSliceOfStructs(refTypeField) {
-		return doParseSlice(refField, processField, optionsWithEnvPrefix(refTypeField, opts))
+		return doParseSlice(ctx, refField, processField, optionsWithEnvPrefix(refTypeField, opts))
 	}
 
 	return nil
@@ -265,7 +269,7 @@ func isSliceOfStructs(refTypeField reflect.StructField) bool {
 	return false
 }
 
-func doParseSlice(ref reflect.Value, processField processFieldFn, opts newParams) error {
+func doParseSlice(ctx context.Context, ref reflect.Value, processField processFieldFn, opts newParams) error {
 	if opts.Prefix != "" && !strings.HasSuffix(opts.Prefix, string(underscore)) {
 		opts.Prefix += string(underscore)
 	}
@@ -311,7 +315,7 @@ func doParseSlice(ref reflect.Value, processField processFieldFn, opts newParams
 			if i < initialized {
 				item.Set(ref.Index(i))
 			}
-			if err := doParse(item, processField, optionsWithSliceEnvPrefix(opts, i)); err != nil {
+			if err := doParse(ctx, item, processField, optionsWithSliceEnvPrefix(opts, i)); err != nil {
 				return err
 			}
 		}
@@ -329,14 +333,14 @@ func doParseSlice(ref reflect.Value, processField processFieldFn, opts newParams
 	return nil
 }
 
-func setField(refField reflect.Value, refTypeField reflect.StructField, opts newParams, fieldParams FieldParams) error {
+func setField(ctx context.Context, refField reflect.Value, refTypeField reflect.StructField, opts newParams, fieldParams FieldParams) error {
 	value, isDefault, err := get(fieldParams, opts)
 	if err != nil {
 		return err
 	}
 
 	if value != "" && (!opts.SetDefaultsForZeroValuesOnly || refField.IsZero()) {
-		return set(refField, refTypeField, fieldParams.Key, value, isDefault, opts.FuncMap, opts.OnSet)
+		return set(ctx, refField, refTypeField, fieldParams.Key, value, isDefault, opts.FuncMap, opts.OnSet)
 	}
 
 	return nil
@@ -464,7 +468,7 @@ func getOr(key, defaultValue string, defExists bool, envs map[string]string) (va
 	return value, true, false
 }
 
-func set(field reflect.Value, sf reflect.StructField, key, value string, isDefault bool, getParserFunc func(reflect.Type) (ParserFunc, bool), onSet OnSetFn) error {
+func set(ctx context.Context, field reflect.Value, sf reflect.StructField, key, value string, isDefault bool, getParserFunc func(reflect.Type) (ParserFunc, int, bool), onSet OnSetFn) error {
 	if tm := asTextUnmarshaler(field); tm != nil {
 		if err := tm.UnmarshalText([]byte(value)); err != nil {
 			return newParseError(sf, err)
@@ -479,14 +483,18 @@ func set(field reflect.Value, sf reflect.StructField, key, value string, isDefau
 		typee = typee.Elem()
 		fieldee = field.Elem()
 	}
-	parserFunc, ok := getParserFunc(typee)
+	parserFunc, depth, ok := getParserFunc(typee)
 	if ok {
-		val, err := parserFunc(value)
+		val, err := parserFunc(ctx, value)
 		if err != nil {
 			return newParseError(sf, err)
 		}
+		vval := reflect.ValueOf(val)
+		for range depth {
+			vval = vval.Addr()
+		}
 
-		fieldee.Set(reflect.ValueOf(val))
+		fieldee.Set(vval)
 		onSet(key, field.Interface(), isDefault)
 
 		return nil
@@ -494,7 +502,7 @@ func set(field reflect.Value, sf reflect.StructField, key, value string, isDefau
 
 	parserFunc, ok = defaultBuiltInParsers[typee.Kind()]
 	if ok {
-		val, err := parserFunc(value)
+		val, err := parserFunc(ctx, value)
 		if err != nil {
 			return newParseError(sf, err)
 		}
@@ -507,15 +515,15 @@ func set(field reflect.Value, sf reflect.StructField, key, value string, isDefau
 
 	switch field.Kind() {
 	case reflect.Slice:
-		return handleSlice(field, key, value, isDefault, sf, getParserFunc, onSet)
+		return handleSlice(ctx, field, key, value, isDefault, sf, getParserFunc, onSet)
 	case reflect.Map:
-		return handleMap(field, key, value, isDefault, sf, getParserFunc, onSet)
+		return handleMap(ctx, field, key, value, isDefault, sf, getParserFunc, onSet)
 	}
 
 	return newNoParserError(sf)
 }
 
-func handleSlice(field reflect.Value, key, value string, isDefault bool, sf reflect.StructField, getParserFunc func(reflect.Type) (ParserFunc, bool), onSet OnSetFn) error {
+func handleSlice(ctx context.Context, field reflect.Value, key, value string, isDefault bool, sf reflect.StructField, getParserFunc func(reflect.Type) (ParserFunc, int, bool), onSet OnSetFn) error {
 	separator := sf.Tag.Get("envSeparator")
 	if separator == "" {
 		separator = ","
@@ -531,7 +539,7 @@ func handleSlice(field reflect.Value, key, value string, isDefault bool, sf refl
 		return parseTextUnmarshalers(field, key, parts, sf, onSet)
 	}
 
-	parserFunc, ok := getParserFunc(typee)
+	parserFunc, depth, ok := getParserFunc(typee)
 	if !ok {
 		parserFunc, ok = defaultBuiltInParsers[typee.Kind()]
 		if !ok {
@@ -541,11 +549,16 @@ func handleSlice(field reflect.Value, key, value string, isDefault bool, sf refl
 
 	result := reflect.MakeSlice(sf.Type, 0, len(parts))
 	for _, part := range parts {
-		r, err := parserFunc(part)
+		r, err := parserFunc(ctx, part)
 		if err != nil {
 			return newParseError(sf, err)
 		}
-		v := reflect.ValueOf(r).Convert(typee)
+		vval := reflect.ValueOf(r)
+		for range depth {
+			vval = vval.Addr()
+		}
+
+		v := vval.Convert(typee)
 		if sf.Type.Elem().Kind() == reflect.Ptr {
 			v = reflect.New(typee)
 			v.Elem().Set(reflect.ValueOf(r).Convert(typee))
@@ -557,9 +570,9 @@ func handleSlice(field reflect.Value, key, value string, isDefault bool, sf refl
 	return nil
 }
 
-func handleMap(field reflect.Value, key, value string, isDefault bool, sf reflect.StructField, getParserFunc func(reflect.Type) (ParserFunc, bool), onSet OnSetFn) error {
+func handleMap(ctx context.Context, field reflect.Value, key, value string, isDefault bool, sf reflect.StructField, getParserFunc func(reflect.Type) (ParserFunc, int, bool), onSet OnSetFn) error {
 	keyType := sf.Type.Key()
-	keyParserFunc, ok := getParserFunc(keyType)
+	keyParserFunc, keyDepth, ok := getParserFunc(keyType)
 	if !ok {
 		keyParserFunc, ok = defaultBuiltInParsers[keyType.Kind()]
 		if !ok {
@@ -568,7 +581,7 @@ func handleMap(field reflect.Value, key, value string, isDefault bool, sf reflec
 	}
 
 	elemType := sf.Type.Elem()
-	elemParserFunc, ok := getParserFunc(elemType)
+	elemParserFunc, valueDepth, ok := getParserFunc(elemType)
 	if !ok {
 		elemParserFunc, ok = defaultBuiltInParsers[elemType.Kind()]
 		if !ok {
@@ -593,17 +606,27 @@ func handleMap(field reflect.Value, key, value string, isDefault bool, sf reflec
 			return newParseError(sf, fmt.Errorf(`%q should be in "key%svalue" format`, part, keyValSeparator))
 		}
 
-		key, err := keyParserFunc(pairs[0])
+		key, err := keyParserFunc(ctx, pairs[0])
 		if err != nil {
 			return newParseError(sf, err)
 		}
 
-		elem, err := elemParserFunc(pairs[1])
+		elem, err := elemParserFunc(ctx, pairs[1])
 		if err != nil {
 			return newParseError(sf, err)
 		}
 
-		result.SetMapIndex(reflect.ValueOf(key).Convert(keyType), reflect.ValueOf(elem).Convert(elemType))
+		vkey := reflect.ValueOf(key)
+		for range keyDepth {
+			vkey = vkey.Addr()
+		}
+
+		velem := reflect.ValueOf(elem)
+		for range valueDepth {
+			velem = velem.Addr()
+		}
+
+		result.SetMapIndex(vkey.Convert(keyType), velem.Convert(elemType))
 	}
 
 	field.Set(result)

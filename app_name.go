@@ -1,33 +1,5 @@
 package core
 
-import (
-	"context"
-)
-
-type ctxAppNameKey struct{}
-
-// WithAppName returns a derived context carrying the provided [AppName].
-// It is a lightweight convenience used during application startup to
-// annotate the root context with identity metadata that downstream code
-// can retrieve via [AppNameFromContext].
-//
-// The stored value is immutable.
-func WithAppName(ctx context.Context, v AppName) context.Context {
-	return context.WithValue(ctx, ctxAppNameKey{}, v)
-}
-
-// AppNameFromContext extracts an [AppName] previously attached with
-// [WithAppName]. When no value is present a stable default is returned and
-// the boolean is false, allowing callers to distinguish between implicit
-// and explicit identity.
-func AppNameFromContext(ctx context.Context) (AppName, bool) {
-	if v, ok := ctx.Value(ctxAppNameKey{}).(AppName); ok {
-		return v, true
-	}
-
-	return defaultAppName(), false
-}
-
 const (
 	// DefaultAppName is the fallback stable identifier used when no explicit
 	// name is provided.

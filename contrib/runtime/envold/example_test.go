@@ -1,6 +1,7 @@
 package env_test
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -17,10 +18,10 @@ func Example() {
 
 	// parse:
 	var cfg1 Config
-	_ = Parse(&cfg1, WithEnvironment(map[string]string{"FOO": "bar"}))
+	_ = Parse(context.TODO(),&cfg1, WithEnvironment(map[string]string{"FOO": "bar"}))
 
 	// parse with generics:
-	cfg2, _ := ParseAs[Config](WithEnvironment(map[string]string{"FOO": "bar"}))
+	cfg2, _ := ParseAs[Config](context.TODO(),WithEnvironment(map[string]string{"FOO": "bar"}))
 
 	fmt.Print(cfg1.Foo, cfg2.Foo)
 	// Output: barbar
@@ -32,7 +33,7 @@ func ExampleParse() {
 		Home string `env:"HOME"`
 	}
 	var cfg Config
-	if err := Parse(&cfg,
+	if err := Parse(context.TODO(),&cfg,
 		WithEnvironment(map[string]string{
 			"HOME": "/tmp/fakehome",
 		}),
@@ -48,7 +49,7 @@ func ExampleParseAs() {
 	type Config struct {
 		Home string `env:"HOME"`
 	}
-	cfg, err := ParseAs[Config](WithEnvironment(map[string]string{
+	cfg, err := ParseAs[Config](context.TODO(),WithEnvironment(map[string]string{
 		"HOME": "/tmp/fakehome",
 	}))
 	if err != nil {
@@ -63,7 +64,7 @@ func ExampleParse_required() {
 		Nope string `env:"NOPE,required"`
 	}
 	var cfg Config
-	if err := Parse(&cfg); err != nil {
+	if err := Parse(context.TODO(),&cfg); err != nil {
 		fmt.Println(err)
 	}
 	fmt.Printf("%+v", cfg)
@@ -79,7 +80,7 @@ func ExampleParse_notEmpty() {
 		Nope string `env:"NOPE,notEmpty"`
 	}
 	var cfg Config
-	if err := Parse(&cfg, WithEnvironment(map[string]string{
+	if err := Parse(context.TODO(),&cfg, WithEnvironment(map[string]string{
 		"NOPE": "",
 	})); err != nil {
 		fmt.Println(err)
@@ -96,7 +97,7 @@ func ExampleParse_unset() {
 		Secret string `env:"SECRET,unset"`
 	}
 	var cfg Config
-	if err := Parse(&cfg, WithEnvironment(map[string]string{
+	if err := Parse(context.TODO(),&cfg, WithEnvironment(map[string]string{
 		"SECRET": "1234",
 	})); err != nil {
 		fmt.Println(err)
@@ -115,7 +116,7 @@ func ExampleParse_separator() {
 		Map map[string]string `env:"CUSTOM_MAP" envSeparator:"-" envKeyValSeparator:"|"`
 	}
 	var cfg Config
-	if err := Parse(&cfg, WithEnvironment(map[string]string{
+	if err := Parse(context.TODO(),&cfg, WithEnvironment(map[string]string{
 		"CUSTOM_MAP": "k1|v1-k2|v2",
 	})); err != nil {
 		fmt.Println(err)
@@ -136,7 +137,7 @@ func ExampleParse_init() {
 		InitInner *Inner `env:",init"`
 	}
 	var cfg Config
-	if err := Parse(&cfg); err != nil {
+	if err := Parse(context.TODO(),&cfg); err != nil {
 		fmt.Println(err)
 	}
 	fmt.Print(cfg.NilInner, cfg.InitInner)
@@ -156,7 +157,7 @@ func ExampleParse_setDefaults() {
 	cfg := Config{
 		Foo: "foo",
 	}
-	if err := Parse(&cfg); err != nil {
+	if err := Parse(context.TODO(),&cfg); err != nil {
 		fmt.Println(err)
 	}
 	fmt.Printf("%+v", cfg)
@@ -174,7 +175,7 @@ func ExampleParse_onSet() {
 		Inner        struct{} `envPrefix:"INNER_"`
 	}
 	var cfg config
-	if err := Parse(&cfg,
+	if err := Parse(context.TODO(),&cfg,
 		WithEnvironment(map[string]string{"HOME": "/tmp/fakehome"}),
 		WithOnSet(func(tag string, value any, isDefault bool) {
 			fmt.Printf("Set %s to %v (default? %v)\n", tag, value, isDefault)
@@ -209,7 +210,7 @@ func ExampleParse_customTimeFormat() {
 		SomeTime MyTime `env:"SOME_TIME"`
 	}
 	var cfg Config
-	if err := Parse(&cfg, WithEnvironment(map[string]string{
+	if err := Parse(context.TODO(),&cfg, WithEnvironment(map[string]string{
 		"SOME_TIME": "2021-05-06",
 	})); err != nil {
 		fmt.Println(err)
@@ -249,7 +250,7 @@ func ExampleParse_customTypes() {
 	})
 
 	c := Config{}
-	err := Parse(&c,
+	err := Parse(context.TODO(),&c,
 		WithEnvironment(map[string]string{"THING": "my thing"}),
 		WithFuncMap(m.get),
 	)
@@ -268,7 +269,7 @@ func ExampleParse_allFieldsRequired() {
 	}
 
 	var cfg Config
-	if err := Parse(&cfg,
+	if err := Parse(context.TODO(),&cfg,
 		WithRequiredIfNoDef(),
 	); err != nil {
 		fmt.Println(err)
@@ -287,7 +288,7 @@ func ExampleParse_setEnv() {
 	}
 
 	var cfg Config
-	if err := Parse(&cfg,
+	if err := Parse(context.TODO(),&cfg,
 		WithEnvironment(map[string]string{
 			"EX_USERNAME": "john",
 			"EX_PASSWORD": "cena",
@@ -310,7 +311,7 @@ func ExampleParse_complexSlices() {
 	}
 
 	var cfg Config
-	if err := Parse(&cfg, WithEnvironment(map[string]string{
+	if err := Parse(context.TODO(),&cfg, WithEnvironment(map[string]string{
 		"FOO_0_STR": "a",
 		"FOO_0_NUM": "1",
 		"FOO_1_STR": "b",
@@ -328,7 +329,7 @@ func ExampleParse_prefix() {
 		Foo string `env:"FOO"`
 	}
 	var cfg Config
-	if err := Parse(&cfg,
+	if err := Parse(context.TODO(),&cfg,
 		WithEnvironment(map[string]string{"MY_APP_FOO": "a"}),
 		WithPrefix("MY_APP_"),
 	); err != nil {
@@ -345,7 +346,7 @@ func ExampleParse_tagName() {
 		Page string `json:"PAGE" def:"world"`
 	}
 	var cfg Config
-	if err := Parse(&cfg,
+	if err := Parse(context.TODO(),&cfg,
 		WithEnvironment(map[string]string{"HOME": "hello"}),
 		WithTagName("json"),
 		WithDefaultValueTagName("def"),
@@ -366,7 +367,7 @@ func ExampleParse_useFieldName() {
 		Foo string
 	}
 	var cfg Config
-	if err := Parse(&cfg,
+	if err := Parse(context.TODO(),&cfg,
 		WithEnvironment(map[string]string{"FOO": "bar"}),
 		WithUseFieldNameByDefault(),
 	); err != nil {
@@ -383,7 +384,7 @@ func ExampleParse_errorHandling() {
 	}
 
 	var cfg Config
-	if err := Parse(&cfg); err != nil {
+	if err := Parse(context.TODO(),&cfg); err != nil {
 		if errors.Is(err, EmptyVarError{}) {
 			fmt.Println("oopsie")
 		}
@@ -428,7 +429,7 @@ func Example_setDefaultsForZeroValuesOnly() {
 		Username: "root",
 	}
 
-	if err := Parse(&cfg,
+	if err := Parse(context.TODO(), &cfg,
 		WithEnvironment(map[string]string{}),
 		WithSetDefaultsForZeroValuesOnly(),
 	); err != nil {
@@ -442,14 +443,14 @@ func Example_setDefaultsForZeroValuesOnly() {
 
 type Mapper map[reflect.Type]ParserFunc
 
-func (m Mapper) get(t reflect.Type) (ParserFunc, bool) {
+func (m Mapper) get(t reflect.Type) (ParserFunc, int, bool) {
 	f, ok := m[t]
-	return f, ok
+	return f, 0, ok
 }
 
 func UseMapper[T any](m Mapper, parseFunc func(string) (T, error)) Mapper {
 	typ := reflect.TypeFor[T]()
-	fn := func(s string) (any, error) { return parseFunc(s) }
+	fn := func(ctx context.Context, s string) (any, error) { return parseFunc(s) }
 
 	m[typ] = fn
 	return m

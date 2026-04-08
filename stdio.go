@@ -1,12 +1,9 @@
 package core
 
 import (
-	"context"
 	"io"
 	"os"
 )
-
-type ctxPipelineKey struct{}
 
 // Pipeline captures standard stream handles plus a flag indicating whether
 // stdin appears to be connected to a non-tty source (e.g., pipe or file) for
@@ -41,25 +38,6 @@ func PipelineFromFiles(stdin, stdout, stderr *os.File) Pipeline {
 		stderr:     stderr,
 		isPipeline: isPipeline(stdin),
 	}
-}
-
-// WithPipelines stores a [Pipeline] in a derived context for later retrieval.
-// Use [PipelinesFromContext] to extract it; if absent, a cached default is
-// provided.
-func WithPipelines(ctx context.Context, p Pipeline) context.Context {
-	return context.WithValue(ctx, ctxPipelineKey{}, p)
-}
-
-// PipelinesFromContext retrieves a [Pipeline] previously attached with
-// [WithPipelines]. The boolean reports whether an explicit value was set.
-// When false a lazily-created default wrapping the process stdio streams
-// is returned.
-func PipelinesFromContext(ctx context.Context) (Pipeline, bool) {
-	if p, ok := ctx.Value(ctxPipelineKey{}).(Pipeline); ok {
-		return p, true
-	}
-
-	return defaultPipeline(), false
 }
 
 // Stdin returns the input stream associated with the pipeline.

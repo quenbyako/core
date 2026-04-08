@@ -7,7 +7,6 @@ import (
 	"fmt"
 
 	"os"
-	"reflect"
 	"slices"
 
 	"github.com/quenbyako/core"
@@ -15,7 +14,6 @@ import (
 	envold "github.com/quenbyako/core/contrib/runtime/envold"
 	"github.com/quenbyako/core/contrib/runtime/observability"
 	"github.com/quenbyako/core/contrib/secrets"
-	"github.com/quenbyako/core/internal"
 )
 
 const alternativeLib = false
@@ -24,10 +22,7 @@ func Run[T core.ActionConfig](action core.ActionFunc[T]) func(context.Context, [
 	return func(ctx context.Context, _ []string) core.ExitCode {
 		var config T
 
-		environ, ok := CtxEnv(ctx)
-		if !ok {
-			environ = toMap(os.Environ())
-		}
+		environ, _ := CtxEnv(ctx)
 
 		var activeParams func() []core.EnvParam
 
@@ -35,15 +30,11 @@ func Run[T core.ActionConfig](action core.ActionFunc[T]) func(context.Context, [
 		if alternativeLib {
 			err = env.Parse(ctx, &config, env.WithEnvironment(environ))
 		} else {
-			mappers := make(map[reflect.Type]envold.ParserFunc)
-			for typ, f := range internal.GetAllParseFunc() {
-				mappers[typ] = func(v string) (any, error) { return f(ctx, v) }
-			}
+			var opt []envold.NewOption
+			opt, activeParams = envParams(environ)
+			opt = append(opt, envold.WithFuncMap(core.GetParseFunc))
 
-			var opt envold.Options
-			opt, activeParams = envParams(environ, mappers)
-
-			err = envold.ParseWithOptions(&config, opt)
+			err = envold.Parse(ctx, &config, opt...)
 		}
 
 		// warn: aggregate error is not returned by value, not by pointer
@@ -74,7 +65,7 @@ func Run[T core.ActionConfig](action core.ActionFunc[T]) func(context.Context, [
 		logHandler := defaultLogger(os.Stderr, config.GetLogLevel())
 		var log LogCallbacks = defaultLogs(logHandler)
 
-		log.EffectiveEnvironment(getEffectiveEnvironment(&config, environ))
+		log.EffectiveEnvironment(getEffectiveEnvironment(ctx, &config, environ))
 
 		var clientCert tls.Certificate
 		if certPath, keyPath := config.ClientCertPaths(); certPath != "" && keyPath != "" {
@@ -170,7 +161,7 @@ func Run[T core.ActionConfig](action core.ActionFunc[T]) func(context.Context, [
 			IsPipeline: pipes.IsPipeline(),
 			stdin:      pipes.Stdin(),
 			stdout:     pipes.Stdout(),
-			log:        logHandler,
+			log:        m,
 			metric:     m,
 			trace:      m,
 			config:     config,
@@ -181,9 +172,17 @@ func Run[T core.ActionConfig](action core.ActionFunc[T]) func(context.Context, [
 
 		var shutdownErrs []error
 
+		// Cleanly shut down observability signals (flushing OTLP buffers)
+		if s, ok := m.(interface{ Shutdown(context.Context) error }); ok {
+			if err := s.Shutdown(ctx); err != nil {
+				shutdownErrs = append(shutdownErrs, fmt.Errorf("observability shutdown: %w", err))
+			}
+		}
+
 		if err := metricServer.shutdown(ctx); err != nil {
 			shutdownErrs = append(shutdownErrs, fmt.Errorf("shutting down metric server: %w", err))
 		}
+
 		for _, v := range configurations {
 			if err := v.Shutdown(ctx, &shutdownData); err != nil {
 				shutdownErrs = append(shutdownErrs, err)
@@ -219,9 +218,9 @@ func envParams(env map[string]string) ([]envold.NewOption, func() []core.EnvPara
 	}, func() []core.EnvParam { return activeParams }
 }
 
-func getEffectiveEnvironment(config any, e map[string]string) map[string]string {
+func getEffectiveEnvironment(ctx context.Context, config any, e map[string]string) map[string]string {
 	opts, _ := envParams(nil)
-	fields, err := envold.GetFieldParams(config, opts...)
+	fields, err := envold.GetFieldParams(ctx, config, opts...)
 	if err != nil {
 		panic(err)
 	}

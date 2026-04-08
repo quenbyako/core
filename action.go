@@ -149,36 +149,6 @@ func GetCircuitBreaker[T ActionConfig](ctx AppContext[T], scope string) (Circuit
 	return NoopCircuitBreaker(), false
 }
 
-type LoggerAppContext[T ActionConfig] interface {
-	AppContext[T]
-
-	Log() slog.Handler
-}
-
-// Logger attempts to extract a [slog.Handler] logging capability from the
-// provided [AppContext]. It performs a single type assertion against
-// [LoggerAppContext]. Returns (handler, true) when the capability is present,
-// or (nil, false) if the context does not supply structured logging.
-//
-// Semantics:
-//   - Absence is not an error; callers should branch on the boolean and degrade
-//     gracefully (e.g., use a no-op handler or skip logging).
-//   - The returned [slog.Handler] SHOULD be safe for concurrent use; this is an
-//     implementation concern of the concrete AppContext.
-//
-// Example:
-//
-//	if h, ok := Logger(appCtx); ok {
-//	    h.Handle(ctx, slog.Record{ /* ... */ })
-//	}
-func Logger[T ActionConfig](ctx AppContext[T]) (slog.Handler, bool) {
-	if v, ok := ctx.(LoggerAppContext[T]); ok {
-		return v.Log(), ok
-	}
-
-	return nil, false
-}
-
 type ObservabilityAppContext[T ActionConfig] interface {
 	AppContext[T]
 

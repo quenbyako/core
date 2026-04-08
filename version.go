@@ -1,33 +1,12 @@
 package core
 
 import (
-	"context"
 	"crypto/sha1" //nolint:gosec // this is a git hash algorithm
 	"encoding/hex"
 	"time"
 
 	"golang.org/x/mod/semver"
 )
-
-type ctxVersionKey struct{}
-
-// WithVersion attaches an [AppVersion] to a derived context for later
-// retrieval via [VersionFromContext]. The stored value is immutable.
-func WithVersion(ctx context.Context, v AppVersion) context.Context {
-	return context.WithValue(ctx, ctxVersionKey{}, v)
-}
-
-// VersionFromContext extracts an [AppVersion] previously attached with
-// [WithVersion]. When absent it returns a lazily constructed default and
-// false. Callers can use the boolean to differentiate explicit vs.
-// fallback version data.
-func VersionFromContext(ctx context.Context) (AppVersion, bool) {
-	if v, ok := ctx.Value(ctxVersionKey{}).(AppVersion); ok {
-		return v, true
-	}
-
-	return defaultVersion(), false
-}
 
 const (
 	DefaultVersion = "v0.0.0-dev"

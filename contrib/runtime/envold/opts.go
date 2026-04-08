@@ -46,7 +46,7 @@ type newParams struct {
 	SetDefaultsForZeroValuesOnly bool
 
 	// Custom parse functions for different types.
-	FuncMap func(reflect.Type) (ParserFunc, bool)
+	FuncMap func(reflect.Type) (f ParserFunc, ptrDepth int, ok bool)
 
 	// Used internally. maps the env variable key to its resolved string value.
 	// (for env var expansion)
@@ -55,7 +55,7 @@ type newParams struct {
 
 type NewOption func(*newParams)
 
-func WithFuncMap(f func(reflect.Type) (ParserFunc, bool)) NewOption {
+func WithFuncMap(f func(reflect.Type) (f ParserFunc, ptrDepth int, ok bool)) NewOption {
 	return func(p *newParams) { p.FuncMap = f }
 }
 

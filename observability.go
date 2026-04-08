@@ -1,9 +1,8 @@
 package core
 
 import (
-	"context"
-	"log/slog"
-
+	"go.opentelemetry.io/otel/log"
+	noopLog "go.opentelemetry.io/otel/log/noop"
 	"go.opentelemetry.io/otel/metric"
 	noopMetric "go.opentelemetry.io/otel/metric/noop"
 	"go.opentelemetry.io/otel/trace"
@@ -15,7 +14,7 @@ import (
 // slog.Handler for structured logging plus OTel tracer and meter providers.
 // Implementations SHOULD be safe for concurrent use by multiple goroutines.
 type Metrics interface {
-	slog.Handler
+	log.LoggerProvider
 	trace.TracerProvider
 	metric.MeterProvider
 }
@@ -29,17 +28,12 @@ func NoopMetrics() Metrics {
 	return &noopMetrics{
 		TracerProvider: noopTrace.NewTracerProvider(),
 		MeterProvider:  noopMetric.NewMeterProvider(),
+		LoggerProvider: noopLog.NewLoggerProvider(),
 	}
 }
-
-var _ slog.Handler = (*noopMetrics)(nil) //nolint:grouper // type check
 
 type noopMetrics struct {
 	trace.TracerProvider
 	metric.MeterProvider
+	log.LoggerProvider
 }
-
-func (n *noopMetrics) Enabled(context.Context, slog.Level) bool  { return false }
-func (n *noopMetrics) Handle(context.Context, slog.Record) error { return nil }
-func (n *noopMetrics) WithAttrs(attrs []slog.Attr) slog.Handler  { return n }
-func (n *noopMetrics) WithGroup(name string) slog.Handler        { return n }
