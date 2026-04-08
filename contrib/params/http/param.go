@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/quenbyako/core"
+	"go.opentelemetry.io/contrib/bridges/otelslog"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
@@ -100,7 +101,7 @@ func parseHTTPServer(ctx context.Context, v string) (Server, error) {
 }
 
 func (g *httpServerWrapper) Configure(ctx context.Context, data *core.ConfigureData) error {
-	g.log = slog.New(data.Logger)
+	g.log = otelslog.NewLogger("http", otelslog.WithLoggerProvider(data.Logger))
 	g.meterProvider = data.Metric
 	g.traceProvider = data.Trace
 

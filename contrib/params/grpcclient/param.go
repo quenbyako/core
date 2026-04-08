@@ -6,6 +6,7 @@ import (
 	"net/url"
 
 	"github.com/quenbyako/core"
+	"go.opentelemetry.io/contrib/bridges/otelslog"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/resolver"
@@ -13,7 +14,6 @@ import (
 
 // Client abstracts a gRPC client connection and provides access to the
 // underlying target information.
-//
 type Client interface {
 	grpc.ClientConnInterface
 
@@ -67,7 +67,7 @@ func targetReverse(t resolver.Target) string {
 }
 
 func (c *clientWrapper) Configure(ctx context.Context, data *core.ConfigureData) (err error) {
-	c.log = slog.New(data.Logger)
+	c.log = otelslog.NewLogger("grpcclient", otelslog.WithLoggerProvider(data.Logger))
 
 	c.conn, err = grpc.NewClient(targetReverse(c.addr), grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {

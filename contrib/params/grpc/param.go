@@ -12,6 +12,7 @@ import (
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/logging"
 	validator "github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/protovalidate"
 	"github.com/quenbyako/core"
+	"go.opentelemetry.io/contrib/bridges/otelslog"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
@@ -78,8 +79,10 @@ func parseGRPCServer(ctx context.Context, v string) (Server, error) {
 }
 
 func (g *grpcServerWrapper) Configure(ctx context.Context, data *core.ConfigureData) error {
-	g.srv = newGRPCServer(data.Logger, data.Metric, data.Trace)
-	g.log = slog.New(data.Logger)
+	handler := otelslog.NewHandler("grpc", otelslog.WithLoggerProvider(data.Logger))
+
+	g.srv = newGRPCServer(handler, data.Metric, data.Trace)
+	g.log = slog.New(handler)
 
 	return nil
 }
