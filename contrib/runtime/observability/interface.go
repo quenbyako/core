@@ -68,7 +68,7 @@ func WithMetricReader(reader sdkmetric.Reader) NewOption {
 	return func(m *newParams) { m.metricReader = reader }
 }
 
-// New creates a new observability Metrics instance
+// New creates a new observability [core.Metrics] instance
 //
 //nolint:ireturn // returns interface on intention.
 func New(ctx context.Context, opts ...NewOption) (core.Metrics, error) {

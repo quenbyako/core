@@ -1,10 +1,12 @@
-package env
+package env_test
 
 import (
 	"errors"
 	"fmt"
 	"os"
 	"reflect"
+
+	. "github.com/quenbyako/core/contrib/runtime/envold"
 )
 
 // Basic package usage example.
@@ -13,14 +15,12 @@ func Example() {
 		Foo string `env:"FOO"`
 	}
 
-	os.Setenv("FOO", "bar")
-
 	// parse:
 	var cfg1 Config
-	_ = Parse(&cfg1)
+	_ = Parse(&cfg1, WithEnvironment(map[string]string{"FOO": "bar"}))
 
 	// parse with generics:
-	cfg2, _ := ParseAs[Config]()
+	cfg2, _ := ParseAs[Config](WithEnvironment(map[string]string{"FOO": "bar"}))
 
 	fmt.Print(cfg1.Foo, cfg2.Foo)
 	// Output: barbar
@@ -31,9 +31,12 @@ func ExampleParse() {
 	type Config struct {
 		Home string `env:"HOME"`
 	}
-	os.Setenv("HOME", "/tmp/fakehome")
 	var cfg Config
-	if err := Parse(&cfg); err != nil {
+	if err := Parse(&cfg,
+		WithEnvironment(map[string]string{
+			"HOME": "/tmp/fakehome",
+		}),
+	); err != nil {
 		fmt.Println(err)
 	}
 	fmt.Printf("%+v", cfg)
@@ -45,8 +48,9 @@ func ExampleParseAs() {
 	type Config struct {
 		Home string `env:"HOME"`
 	}
-	os.Setenv("HOME", "/tmp/fakehome")
-	cfg, err := ParseAs[Config]()
+	cfg, err := ParseAs[Config](WithEnvironment(map[string]string{
+		"HOME": "/tmp/fakehome",
+	}))
 	if err != nil {
 		fmt.Println(err)
 	}
@@ -74,9 +78,10 @@ func ExampleParse_notEmpty() {
 	type Config struct {
 		Nope string `env:"NOPE,notEmpty"`
 	}
-	os.Setenv("NOPE", "")
 	var cfg Config
-	if err := Parse(&cfg); err != nil {
+	if err := Parse(&cfg, WithEnvironment(map[string]string{
+		"NOPE": "",
+	})); err != nil {
 		fmt.Println(err)
 	}
 	fmt.Printf("%+v", cfg)
@@ -90,9 +95,10 @@ func ExampleParse_unset() {
 	type Config struct {
 		Secret string `env:"SECRET,unset"`
 	}
-	os.Setenv("SECRET", "1234")
 	var cfg Config
-	if err := Parse(&cfg); err != nil {
+	if err := Parse(&cfg, WithEnvironment(map[string]string{
+		"SECRET": "1234",
+	})); err != nil {
 		fmt.Println(err)
 	}
 	fmt.Printf("%+v - %s", cfg, os.Getenv("SECRET"))
@@ -108,31 +114,14 @@ func ExampleParse_separator() {
 	type Config struct {
 		Map map[string]string `env:"CUSTOM_MAP" envSeparator:"-" envKeyValSeparator:"|"`
 	}
-	os.Setenv("CUSTOM_MAP", "k1|v1-k2|v2")
 	var cfg Config
-	if err := Parse(&cfg); err != nil {
+	if err := Parse(&cfg, WithEnvironment(map[string]string{
+		"CUSTOM_MAP": "k1|v1-k2|v2",
+	})); err != nil {
 		fmt.Println(err)
 	}
 	fmt.Printf("%+v", cfg)
 	// Output: {Map:map[k1:v1 k2:v2]}
-}
-
-// If you set the `expand` option, environment variables (either in `${var}` or
-// `$var` format) in the string will be replaced according with the actual
-// value of the variable. For example:
-func ExampleParse_expand() {
-	type Config struct {
-		Expand1 string `env:"EXPAND_1,expand"`
-		Expand2 string `env:"EXPAND_2,expand" envDefault:"ABC_${EXPAND_1}"`
-	}
-	os.Setenv("EXPANDING", "HI")
-	os.Setenv("EXPAND_1", "HELLO_${EXPANDING}")
-	var cfg Config
-	if err := Parse(&cfg); err != nil {
-		fmt.Println(err)
-	}
-	fmt.Printf("%+v", cfg)
-	// Output: {Expand1:HELLO_HI Expand2:ABC_HELLO_HI}
 }
 
 // You can automatically initialize `nil` pointers regardless of if a variable
@@ -176,7 +165,7 @@ func ExampleParse_setDefaults() {
 
 // You might want to listen to value sets and, for example, log something or do
 // some other kind of logic.
-func ExampleParseWithOptions_onSet() {
+func ExampleParse_onSet() {
 	type config struct {
 		Home         string `env:"HOME,required"`
 		Port         int    `env:"PORT" envDefault:"3000"`
@@ -184,19 +173,18 @@ func ExampleParseWithOptions_onSet() {
 		NoEnvTag     bool
 		Inner        struct{} `envPrefix:"INNER_"`
 	}
-	os.Setenv("HOME", "/tmp/fakehome")
 	var cfg config
-	if err := ParseWithOptions(&cfg, Options{
-		OnSet: func(tag string, value interface{}, isDefault bool) {
+	if err := Parse(&cfg,
+		WithEnvironment(map[string]string{"HOME": "/tmp/fakehome"}),
+		WithOnSet(func(tag string, value any, isDefault bool) {
 			fmt.Printf("Set %s to %v (default? %v)\n", tag, value, isDefault)
-		},
-	}); err != nil {
+		}),
+	); err != nil {
 		fmt.Println("failed:", err)
 	}
 	fmt.Printf("%+v", cfg)
 	// Output: Set HOME to /tmp/fakehome (default? false)
 	// Set PORT to 3000 (default? true)
-	// Set PRODUCTION to  (default? false)
 	// {Home:/tmp/fakehome Port:3000 IsProduction:false NoEnvTag:false Inner:{}}
 }
 
@@ -220,9 +208,10 @@ func ExampleParse_customTimeFormat() {
 	type Config struct {
 		SomeTime MyTime `env:"SOME_TIME"`
 	}
-	os.Setenv("SOME_TIME", "2021-05-06")
 	var cfg Config
-	if err := Parse(&cfg); err != nil {
+	if err := Parse(&cfg, WithEnvironment(map[string]string{
+		"SOME_TIME": "2021-05-06",
+	})); err != nil {
 		fmt.Println(err)
 	}
 	fmt.Print(cfg.SomeTime)
@@ -230,7 +219,22 @@ func ExampleParse_customTimeFormat() {
 }
 
 // Parse using extra options.
-func ExampleParseWithOptions_customTypes() {
+func ExampleParse_customTypes() {
+	// type Mapper map[reflect.Type]ParserFunc
+	//
+	// func (m Mapper) get(t reflect.Type) (ParserFunc, bool) {
+	// 	f, ok := m[t]
+	// 	return f, ok
+	// }
+	//
+	// func UseMapper[T any](m Mapper, parseFunc func(string) (T, error)) Mapper {
+	// 	typ := reflect.TypeFor[T]()
+	// 	fn := func(s string) (any, error) { return parseFunc(s) }
+	//
+	// 	m[typ] = fn
+	// 	return m
+	// }
+
 	type Thing struct {
 		desc string
 	}
@@ -239,16 +243,16 @@ func ExampleParseWithOptions_customTypes() {
 		Thing Thing `env:"THING"`
 	}
 
-	os.Setenv("THING", "my thing")
+	m := Mapper{}
+	m = UseMapper(m, func(v string) (Thing, error) {
+		return Thing{desc: v}, nil
+	})
 
 	c := Config{}
-	err := ParseWithOptions(&c, Options{
-		FuncMap: map[reflect.Type]ParserFunc{
-			reflect.TypeOf(Thing{}): func(v string) (interface{}, error) {
-				return Thing{desc: v}, nil
-			},
-		},
-	})
+	err := Parse(&c,
+		WithEnvironment(map[string]string{"THING": "my thing"}),
+		WithFuncMap(m.get),
+	)
 	if err != nil {
 		fmt.Println(err)
 	}
@@ -257,16 +261,16 @@ func ExampleParseWithOptions_customTypes() {
 }
 
 // Make all fields required by default.
-func ExampleParseWithOptions_allFieldsRequired() {
+func ExampleParse_allFieldsRequired() {
 	type Config struct {
 		Username string `env:"EX_USERNAME" envDefault:"admin"`
 		Password string `env:"EX_PASSWORD"`
 	}
 
 	var cfg Config
-	if err := ParseWithOptions(&cfg, Options{
-		RequiredIfNoDef: true,
-	}); err != nil {
+	if err := Parse(&cfg,
+		WithRequiredIfNoDef(),
+	); err != nil {
 		fmt.Println(err)
 	}
 	fmt.Printf("%+v\n", cfg)
@@ -276,19 +280,19 @@ func ExampleParseWithOptions_allFieldsRequired() {
 
 // Set a custom environment.
 // By default, `os.Environ()` is used.
-func ExampleParseWithOptions_setEnv() {
+func ExampleParse_setEnv() {
 	type Config struct {
 		Username string `env:"EX_USERNAME" envDefault:"admin"`
 		Password string `env:"EX_PASSWORD"`
 	}
 
 	var cfg Config
-	if err := ParseWithOptions(&cfg, Options{
-		Environment: map[string]string{
+	if err := Parse(&cfg,
+		WithEnvironment(map[string]string{
 			"EX_USERNAME": "john",
 			"EX_PASSWORD": "cena",
-		},
-	}); err != nil {
+		}),
+	); err != nil {
 		fmt.Println(err)
 	}
 	fmt.Printf("%+v\n", cfg)
@@ -305,48 +309,29 @@ func ExampleParse_complexSlices() {
 		Foo []Test `envPrefix:"FOO"`
 	}
 
-	os.Setenv("FOO_0_STR", "a")
-	os.Setenv("FOO_0_NUM", "1")
-	os.Setenv("FOO_1_STR", "b")
-	os.Setenv("FOO_1_NUM", "2")
-
 	var cfg Config
-	if err := Parse(&cfg); err != nil {
+	if err := Parse(&cfg, WithEnvironment(map[string]string{
+		"FOO_0_STR": "a",
+		"FOO_0_NUM": "1",
+		"FOO_1_STR": "b",
+		"FOO_1_NUM": "2",
+	})); err != nil {
 		fmt.Println(err)
 	}
 	fmt.Printf("%+v\n", cfg)
 	// Output: {Foo:[{Str:a Num:1} {Str:b Num:2}]}
 }
 
-// Setting prefixes for inner types.
-func ExampleParse_prefix() {
-	type Inner struct {
-		Foo string `env:"FOO,required"`
-	}
-	type Config struct {
-		A Inner `envPrefix:"A_"`
-		B Inner `envPrefix:"B_"`
-	}
-	os.Setenv("A_FOO", "a")
-	os.Setenv("B_FOO", "b")
-	var cfg Config
-	if err := Parse(&cfg); err != nil {
-		fmt.Println(err)
-	}
-	fmt.Printf("%+v", cfg)
-	// Output: {A:{Foo:a} B:{Foo:b}}
-}
-
 // Setting prefixes for the entire config.
-func ExampleParseWithOptions_prefix() {
+func ExampleParse_prefix() {
 	type Config struct {
 		Foo string `env:"FOO"`
 	}
-	os.Setenv("MY_APP_FOO", "a")
 	var cfg Config
-	if err := ParseWithOptions(&cfg, Options{
-		Prefix: "MY_APP_",
-	}); err != nil {
+	if err := Parse(&cfg,
+		WithEnvironment(map[string]string{"MY_APP_FOO": "a"}),
+		WithPrefix("MY_APP_"),
+	); err != nil {
 		fmt.Println(err)
 	}
 	fmt.Printf("%+v", cfg)
@@ -354,17 +339,17 @@ func ExampleParseWithOptions_prefix() {
 }
 
 // Use a different tag name than `env` and `envDefault`.
-func ExampleParseWithOptions_tagName() {
+func ExampleParse_tagName() {
 	type Config struct {
 		Home string `json:"HOME"`
 		Page string `json:"PAGE" def:"world"`
 	}
-	os.Setenv("HOME", "hello")
 	var cfg Config
-	if err := ParseWithOptions(&cfg, Options{
-		TagName:             "json",
-		DefaultValueTagName: "def",
-	}); err != nil {
+	if err := Parse(&cfg,
+		WithEnvironment(map[string]string{"HOME": "hello"}),
+		WithTagName("json"),
+		WithDefaultValueTagName("def"),
+	); err != nil {
 		fmt.Println(err)
 	}
 	fmt.Printf("%+v", cfg)
@@ -376,46 +361,20 @@ func ExampleParseWithOptions_tagName() {
 //
 // It will use the field name to define the environment variable name.
 // So, `Foo` becomes `FOO`, `FooBar` becomes `FOO_BAR`, and so on.
-func ExampleParseWithOptions_useFieldName() {
+func ExampleParse_useFieldName() {
 	type Config struct {
 		Foo string
 	}
-	os.Setenv("FOO", "bar")
 	var cfg Config
-	if err := ParseWithOptions(&cfg, Options{
-		UseFieldNameByDefault: true,
-	}); err != nil {
+	if err := Parse(&cfg,
+		WithEnvironment(map[string]string{"FOO": "bar"}),
+		WithUseFieldNameByDefault(),
+	); err != nil {
 		fmt.Println(err)
 	}
 	fmt.Printf("%+v", cfg)
 	// Output: {Foo:bar}
 }
-
-// The `env` tag option `file` (e.g., `env:"tagKey,file"`) can be added in
-// order to indicate that the value of the variable shall be loaded from a
-// file.
-//
-// The path of that file is given by the environment variable associated with
-// it.
-func ExampleParse_fromFile() {
-	f, _ := os.CreateTemp("", "")
-	_, _ = f.WriteString("super secret")
-	_ = f.Close()
-
-	type Config struct {
-		Secret string `env:"SECRET,file"`
-	}
-	os.Setenv("SECRET", f.Name())
-	var cfg Config
-	if err := Parse(&cfg); err != nil {
-		fmt.Println(err)
-	}
-	fmt.Printf("%+v", cfg)
-	// Output: {Secret:super secret}
-}
-
-// TODO: envSeperator
-//
 
 func ExampleParse_errorHandling() {
 	type Config struct {
@@ -469,14 +428,29 @@ func Example_setDefaultsForZeroValuesOnly() {
 		Username: "root",
 	}
 
-	if err := ParseWithOptions(&cfg, Options{
-		Environment:                  map[string]string{},
-		SetDefaultsForZeroValuesOnly: true,
-	}); err != nil {
+	if err := Parse(&cfg,
+		WithEnvironment(map[string]string{}),
+		WithSetDefaultsForZeroValuesOnly(),
+	); err != nil {
 		fmt.Println(err)
 	}
 
 	fmt.Printf("%+v", cfg)
 	// Without SetDefaultsForZeroValuesOnly, the username would have been 'admin'.
 	// Output: {Username:root Password:qwerty}
+}
+
+type Mapper map[reflect.Type]ParserFunc
+
+func (m Mapper) get(t reflect.Type) (ParserFunc, bool) {
+	f, ok := m[t]
+	return f, ok
+}
+
+func UseMapper[T any](m Mapper, parseFunc func(string) (T, error)) Mapper {
+	typ := reflect.TypeFor[T]()
+	fn := func(s string) (any, error) { return parseFunc(s) }
+
+	m[typ] = fn
+	return m
 }

@@ -9,6 +9,9 @@ func WithEnvContext(ctx context.Context, env map[string]string) context.Context 
 }
 
 func CtxEnv(ctx context.Context) (map[string]string, bool) {
-	env, ok := ctx.Value(envCtxKey{}).(map[string]string)
-	return env, ok
+	if env, ok := ctx.Value(envCtxKey{}).(map[string]string); ok {
+		return env, true
+	}
+
+	return envold.ToMap(os.Environ()), false
 }

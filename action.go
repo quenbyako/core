@@ -134,16 +134,31 @@ func Stdout[T ActionConfig](ctx AppContext[T]) (io.Writer, bool) {
 	return nil, false
 }
 
+type CircuitBreakerAppContext[T ActionConfig] interface {
+	AppContext[T]
+
+	CircuitBreaker(scope string) CircuitBreaker
+}
+
+//nolint:ireturn // intended to return abstract interface from abstract context
+func GetCircuitBreaker[T ActionConfig](ctx AppContext[T], scope string) (CircuitBreaker, bool) {
+	if v, ok := ctx.(CircuitBreakerAppContext[T]); ok {
+		return v.CircuitBreaker(scope), ok
+	}
+
+	return NoopCircuitBreaker(), false
+}
+
 type LoggerAppContext[T ActionConfig] interface {
 	AppContext[T]
 
 	Log() slog.Handler
 }
 
-// Logger attempts to extract a [slog.Handler] logging capability from the provided
-// [AppContext]. It performs a single type assertion against [LoggerAppContext].
-// Returns (handler, true) when the capability is present, or (nil, false) if the
-// context does not supply structured logging.
+// Logger attempts to extract a [slog.Handler] logging capability from the
+// provided [AppContext]. It performs a single type assertion against
+// [LoggerAppContext]. Returns (handler, true) when the capability is present,
+// or (nil, false) if the context does not supply structured logging.
 //
 // Semantics:
 //   - Absence is not an error; callers should branch on the boolean and degrade

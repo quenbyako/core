@@ -202,27 +202,26 @@ func Run[T core.ActionConfig](action core.ActionFunc[T]) func(context.Context, [
 	}
 }
 
-func envParams(e map[string]string, mappers map[reflect.Type]envold.ParserFunc) (envold.Options, func() []core.EnvParam) {
+func envParams(env map[string]string) ([]envold.NewOption, func() []core.EnvParam) {
 	var activeParams []core.EnvParam
 
-	return envold.Options{
-		TagName:             "env",
-		PrefixTagName:       "prefix",
-		DefaultValueTagName: "default",
-		RequiredIfNoDef:     true,
-		Environment:         e,
-		FuncMap:             mappers,
-		OnSet: func(tag string, value any, isDefault bool) {
+	return []envold.NewOption{
+		envold.WithTagName("env"),
+		envold.WithPrefixTagName("prefix"),
+		envold.WithDefaultValueTagName("default"),
+		envold.WithRequiredIfNoDef(),
+		envold.WithEnvironment(env),
+		envold.WithOnSet(func(tag string, value any, isDefault bool) {
 			if v, ok := value.(core.EnvParam); ok {
 				activeParams = append(activeParams, v)
 			}
-		},
+		}),
 	}, func() []core.EnvParam { return activeParams }
 }
 
 func getEffectiveEnvironment(config any, e map[string]string) map[string]string {
-	opts, _ := envParams(nil, nil)
-	fields, err := envold.GetFieldParamsWithOptions(config, opts)
+	opts, _ := envParams(nil)
+	fields, err := envold.GetFieldParams(config, opts...)
 	if err != nil {
 		panic(err)
 	}
