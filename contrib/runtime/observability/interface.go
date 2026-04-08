@@ -10,15 +10,14 @@ import (
 	"time"
 
 	"github.com/quenbyako/core"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
 	"go.opentelemetry.io/otel/metric"
 	noopMetric "go.opentelemetry.io/otel/metric/noop"
-
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-	"go.opentelemetry.io/otel/semconv/v1.37.0"
 	"go.opentelemetry.io/otel/trace"
 	noopTrace "go.opentelemetry.io/otel/trace/noop"
 )
@@ -31,7 +30,8 @@ type metrics struct {
 
 type newParams struct {
 	logWriter    io.Writer
-	otelAddr     *url.URL
+	otlpAddr     *url.URL
+	otlpMetadata map[string]string
 	metricReader sdkmetric.Reader
 	hostname     string
 	appVersion   core.AppVersion
@@ -57,7 +57,11 @@ func WithLogLevel(level slog.Level) NewOption {
 }
 
 func WithOtelAddr(otelAddr *url.URL) NewOption {
-	return func(m *newParams) { m.otelAddr = otelAddr }
+	return func(m *newParams) { m.otlpAddr = otelAddr }
+}
+
+func WithOtlpMetadata(metadata map[string]string) NewOption {
+	return func(m *newParams) { m.otlpMetadata = metadata }
 }
 
 func WithHostname(hostname string) NewOption {
@@ -79,7 +83,7 @@ func New(ctx context.Context, opts ...NewOption) (core.Metrics, error) {
 		appVersion: version,
 		logWriter:  io.Discard,
 		logLevel:   slog.LevelInfo,
-		otelAddr:   nil,
+		otlpAddr:   nil,
 		hostname:   "",
 	}
 	for _, opt := range opts {
@@ -90,12 +94,24 @@ func New(ctx context.Context, opts ...NewOption) (core.Metrics, error) {
 		return nil, fmt.Errorf("invalid parameters: %w", err)
 	}
 
+	// service.name             unknown_service:cynosure
+	// telemetry.sdk.language   go
+	// telemetry.sdk.name       opentelemetry
+	// telemetry.sdk.version    1.4.0
+	// schemaURL https://opentelemetry.io/schemas/1.39.0
+
+	const (
+		serviceNameKey = attribute.Key("service.name")
+		serviceVersionKey = attribute.Key("service.version")
+	)
+
 	appResource, err := resource.Merge(
 		resource.Default(),
-		resource.NewWithAttributes(
-			semconv.SchemaURL,
-			semconv.ServiceName(ignoreError(appName.Name())),
-			semconv.ServiceVersion(ignoreError(version.VersionCommit())),
+		// using schemaless to omit semconv differences.
+		// TODO: need to make custom resource creator for otel.
+		resource.NewSchemaless(
+			serviceNameKey.String(ignoreError(appName.Name())),
+			serviceVersionKey.String(ignoreError(version.VersionCommit())),
 		),
 	)
 	if err != nil {
@@ -114,7 +130,7 @@ func New(ctx context.Context, opts ...NewOption) (core.Metrics, error) {
 		ReplaceAttr: nil,
 	}).WithAttrs(constantAttrs)
 
-	tracerProvider, err := newTraceProvider(ctx, params.otelAddr, appResource)
+	tracerProvider, err := newTraceProvider(ctx, params.otlpAddr, params.otlpMetadata, appResource)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create trace provider: %w", err)
 	}
@@ -140,6 +156,7 @@ func New(ctx context.Context, opts ...NewOption) (core.Metrics, error) {
 func newTraceProvider(
 	ctx context.Context,
 	addr *url.URL,
+	metadata map[string]string,
 	appResource *resource.Resource,
 ) (
 	trace.TracerProvider,
@@ -163,15 +180,23 @@ func newTraceProvider(
 		if scheme == "https" {
 			opts = append(opts, otlptracehttp.WithTLSClientConfig(nil))
 		}
+		if len(metadata) > 0 {
+			opts = append(opts, otlptracehttp.WithHeaders(metadata))
+		}
 
 		exporter, err = otlptracehttp.New(ctx, opts...)
 
 	case "grpc":
-		exporter, err = otlptracegrpc.New(
-			ctx,
+		opts := []otlptracegrpc.Option{
 			otlptracegrpc.WithEndpoint(addr.Host),
 			otlptracegrpc.WithInsecure(),
-		)
+		}
+
+		if len(metadata) > 0 {
+			opts = append(opts, otlptracegrpc.WithHeaders(metadata))
+		}
+
+		exporter, err = otlptracegrpc.New(ctx, opts...)
 
 	default:
 		return nil, fmt.Errorf("unsupported trace exporter protocol: %s", scheme)

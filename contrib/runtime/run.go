@@ -54,7 +54,7 @@ func Run[T core.ActionConfig](action core.ActionFunc[T]) func(context.Context, [
 				if e := new(envold.VarIsNotSetError); errors.As(err, e) {
 					missedFields = append(missedFields, e.Key)
 				} else {
-					panic(fmt.Sprintf("%#v", err))
+					panic(fmt.Errorf("%w", err))
 				}
 			}
 
@@ -70,6 +70,8 @@ func Run[T core.ActionConfig](action core.ActionFunc[T]) func(context.Context, [
 		} else if err != nil {
 			panic(err)
 		}
+
+		otelCfg := config.GetObservabilityConfig()
 
 		logHandler := defaultLogger(os.Stderr, config.GetLogLevel())
 		var log LogCallbacks = defaultLogs(logHandler)
@@ -96,11 +98,14 @@ func Run[T core.ActionConfig](action core.ActionFunc[T]) func(context.Context, [
 			observability.WithLogLevel(config.GetLogLevel()),
 			observability.WithLogWriter(pipes.Stderr()),
 		}
-		if u := config.GetTraceEndpoint(); u != nil {
+		if u := otelCfg.TraceEndpoint; u != nil {
 			opts = append(opts, observability.WithOtelAddr(u))
 		}
+		if u := otelCfg.OtlpMetadata; u != nil {
+			opts = append(opts, observability.WithOtlpMetadata(u))
+		}
 		var metricServer *promhttpWrapper
-		if addr := config.GetMetricsAddr(); addr != nil {
+		if addr := otelCfg.MetricsEndpoint; addr != nil {
 			metricServer, err = parsePromhttpExporter(addr)
 			if err != nil {
 				panic(fmt.Errorf("parsing metrics address %q: %w", addr, err))

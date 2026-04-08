@@ -25,10 +25,8 @@ type ActionConfig interface {
 	//
 	// TODO: two engines with one protocol? like vault-1:// and vault-2://?
 	GetSecretDSNs() map[string]*url.URL
-	// OTEL trace endpoint
-	GetTraceEndpoint() *url.URL
-	// Prometheus metrics address to listen. If nil, metrics export is disabled
-	GetMetricsAddr() *url.URL
+	// Observability configuration
+	GetObservabilityConfig() ObservabilityConfig
 }
 
 // UnsafeActionConfig is an empty opt-in marker that satisfies [ActionConfig]
@@ -52,8 +50,19 @@ func (UnimplementedActionConfig) GetLogLevel() slog.Level             { return s
 func (UnimplementedActionConfig) GetCertPaths() []string              { return nil }
 func (UnimplementedActionConfig) ClientCertPaths() (cert, key string) { return "", "" }
 func (UnimplementedActionConfig) GetSecretDSNs() map[string]*url.URL  { return nil }
-func (UnimplementedActionConfig) GetTraceEndpoint() *url.URL          { return nil }
-func (UnimplementedActionConfig) GetMetricsAddr() *url.URL            { return nil }
+func (UnimplementedActionConfig) GetObservabilityConfig() ObservabilityConfig {
+	return ObservabilityConfig{}
+}
+
+// ObservabilityConfig holds observability configuration
+type ObservabilityConfig struct {
+	// Prometheus metrics address to listen. If nil, metrics export is disabled
+	MetricsEndpoint *url.URL
+	// OTEL trace endpoint
+	TraceEndpoint *url.URL
+	// OTEL metadata
+	OtlpMetadata map[string]string
+}
 
 // ExitCode represents the process exit status produced by an ActionFunc. The
 // uint8 size mirrors conventional POSIX exit ranges (0–255) and communicates

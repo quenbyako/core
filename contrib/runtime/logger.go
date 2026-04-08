@@ -61,7 +61,19 @@ func levelReplacer(groups []string, a slog.Attr) slog.Attr {
 		return a
 	}
 
-	return slog.String("level", replaceLevel(a.Value.Any().(slog.Level)))
+	var value string
+	switch v := a.Value.Any().(type) {
+	case slog.Level:
+		value = replaceLevel(v)
+	case slog.Leveler:
+		value = replaceLevel(v.Level())
+	default:
+		// this is REALLY REALLY bad way, but, to prevent panic, we have to
+		// do at least something.
+		value = a.Value.String()
+	}
+
+	return slog.String("level", value)
 }
 
 func replaceLevel(l slog.Level) string {
