@@ -264,7 +264,7 @@ func newLogProvider(
 		}
 
 		opts = append(opts,
-			sdklog.WithProcessor(sdklog.NewBatchProcessor(limitLevel(level, exporter))),
+			sdklog.WithProcessor(limitLevel(level, sdklog.NewBatchProcessor(exporter))),
 		)
 	}
 
@@ -275,7 +275,7 @@ func newLogProvider(
 		return nil, fmt.Errorf("failed to create stderr logger: %w", err)
 	}
 	opts = append(opts,
-		sdklog.WithProcessor(sdklog.NewSimpleProcessor(limitLevel(level, stderrLogger))),
+		sdklog.WithProcessor(limitLevel(level, sdklog.NewSimpleProcessor(stderrLogger))),
 	)
 
 	return sdklog.NewLoggerProvider(opts...), nil
