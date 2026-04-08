@@ -116,7 +116,7 @@ func (g *promhttpWrapper) acquire(ctx context.Context) (err error) {
 
 	// calling metrics log here, cause address is already opened, and listener
 	// will wait in any case until http server will start handling requests.
-	g.log.MetricsStarted(g.conn.Addr())
+	g.log.MetricsStarted(ctx, g.conn.Addr())
 
 	serverFinished := make(chan struct{})
 	g.finishServerChan = serverFinished
@@ -130,7 +130,7 @@ func (g *promhttpWrapper) acquire(ctx context.Context) (err error) {
 			panic(fmt.Errorf("serving metrics: %w", err))
 		}
 
-		g.log.MetricsStopped(g.conn.Addr())
+		g.log.MetricsStopped(ctx, g.conn.Addr())
 
 		close(serverFinished)
 	}()

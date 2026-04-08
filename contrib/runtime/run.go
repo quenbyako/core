@@ -64,11 +64,6 @@ func Run[T core.ActionConfig](action core.ActionFunc[T]) func(context.Context, [
 
 		otelCfg := config.GetObservabilityConfig()
 
-		logHandler := defaultLogger(os.Stderr, config.GetLogLevel())
-		var log LogCallbacks = defaultLogs(logHandler)
-
-		log.EffectiveEnvironment(getEffectiveEnvironment(ctx, &config, environ))
-
 		var clientCert tls.Certificate
 		if certPath, keyPath := config.ClientCertPaths(); certPath != "" && keyPath != "" {
 			var err error
@@ -109,14 +104,18 @@ func Run[T core.ActionConfig](action core.ActionFunc[T]) func(context.Context, [
 			panic(fmt.Errorf("setting up observability: %w", err))
 		}
 
+		log := defaultLogs(m)
+
+		log.EffectiveEnvironment(ctx, getEffectiveEnvironment(ctx, &config, environ))
+
 		cfgData := core.ConfigureData{
 			AppCert: clientCert,
 			Pool:    caCerts,
-			Logger:  logHandler,
 			Secrets: secretEngine,
 			Version: version,
 			Metric:  m,
 			Trace:   m,
+			Logger:  m,
 		}
 
 		// configuring

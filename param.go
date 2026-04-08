@@ -4,11 +4,11 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
-	"log/slog"
 	"reflect"
 
 	"github.com/quenbyako/core/internal"
 	"github.com/quenbyako/core/secrets"
+	"go.opentelemetry.io/otel/log"
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -78,10 +78,10 @@ type EnvParam interface {
 // Implementations should not mutate shared values.
 type ConfigureData struct {
 	AppCert tls.Certificate
-	Logger  slog.Handler
 	Secrets secrets.Engine
 	Metric  metric.MeterProvider
 	Trace   trace.TracerProvider
+	Logger  log.LoggerProvider
 	Pool    *x509.CertPool
 	Version AppVersion
 }
