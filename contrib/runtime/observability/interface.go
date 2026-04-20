@@ -1,3 +1,4 @@
+// Package observability provides OTel-based metrics, tracing, and logging for the core framework.
 package observability
 
 import (
@@ -13,19 +14,25 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp"
+	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
 	"go.opentelemetry.io/otel/exporters/stdout/stdoutlog"
-	"go.opentelemetry.io/otel/metric"
-
 	"go.opentelemetry.io/otel/log"
+	"go.opentelemetry.io/otel/metric"
 	sdklog "go.opentelemetry.io/otel/sdk/log"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/trace"
 	noopTrace "go.opentelemetry.io/otel/trace/noop"
+)
+
+const (
+	protocolHTTP  = "http"
+	protocolHTTPS = "https"
+	protocolGRPC  = "grpc"
 )
 
 type metrics struct {
@@ -78,63 +85,77 @@ func WithMetricReader(reader sdkmetric.Reader) NewOption {
 	return func(m *newParams) { m.metricReader = reader }
 }
 
-// New creates a new observability [core.Metrics] instance
-//
-//nolint:ireturn // returns interface on intention.
-func New(ctx context.Context, opts ...NewOption) (core.Metrics, error) {
+func defaultParams(ctx context.Context, opts ...NewOption) newParams {
 	appName, _ := core.AppNameFromContext(ctx)
 	version, _ := core.VersionFromContext(ctx)
 
 	params := newParams{
-		appVersion: version,
-		logWriter:  io.Discard,
-		logLevel:   slog.LevelInfo,
-		otlpAddr:   nil,
-		hostname:   "",
+		logWriter:    io.Discard,
+		otlpAddr:     nil,
+		otlpMetadata: nil,
+		metricReader: nil,
+		hostname:     "",
+		appVersion:   version,
+		logLevel:     slog.LevelInfo,
 	}
+
 	for _, opt := range opts {
 		opt(&params)
 	}
 
-	if err := params.validate(); err != nil {
-		return nil, fmt.Errorf("invalid parameters: %w", err)
-	}
+	_ = appName
 
-	// service.name             unknown_service:cynosure
-	// telemetry.sdk.language   go
-	// telemetry.sdk.name       opentelemetry
-	// telemetry.sdk.version    1.4.0
-	// schemaURL https://opentelemetry.io/schemas/1.39.0
+	return params
+}
+
+func newResource(ctx context.Context) (*resource.Resource, error) {
+	appName, _ := core.AppNameFromContext(ctx)
+	version, _ := core.VersionFromContext(ctx)
 
 	const (
 		serviceNameKey    = attribute.Key("service.name")
 		serviceVersionKey = attribute.Key("service.version")
 	)
 
-	appResource, err := resource.Merge(
+	res, err := resource.Merge(
 		resource.Default(),
-		// using schemaless to omit semconv differences.
-		// TODO: need to make custom resource creator for otel.
 		resource.NewSchemaless(
 			serviceNameKey.String(ignoreError(appName.Name())),
 			serviceVersionKey.String(ignoreError(version.VersionCommit())),
 		),
 	)
 	if err != nil {
+		return nil, fmt.Errorf("observability: failed to merge resources: %w", err)
+	}
+
+	return res, nil
+}
+
+// New creates a new observability [core.Metrics] instance.
+//
+//nolint:ireturn // returns interface on intention.
+func New(ctx context.Context, opts ...NewOption) (core.Metrics, error) {
+	params := defaultParams(ctx, opts...)
+	if err := params.validate(); err != nil {
+		return nil, fmt.Errorf("invalid parameters: %w", err)
+	}
+
+	appResource, err := newResource(ctx)
+	if err != nil {
 		return nil, fmt.Errorf("failed to create OTel resource: %w", err)
 	}
 
-	logProvider, err := newLogProvider(ctx, params.logWriter, params.logLevel, params.otlpAddr, appResource)
+	logProvider, err := newLogProvider(ctx, &params, appResource)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create log provider: %w", err)
 	}
 
-	tracerProvider, err := newTraceProvider(ctx, params.otlpAddr, params.otlpMetadata, appResource)
+	tracerProvider, err := newTraceProvider(ctx, &params, appResource)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create trace provider: %w", err)
 	}
 
-	meterProvider, err := newMeterProvider(ctx, params.otlpAddr, appResource, params.metricReader)
+	meterProvider, err := newMeterProvider(ctx, &params, appResource)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create meter provider: %w", err)
 	}
@@ -146,58 +167,75 @@ func New(ctx context.Context, opts ...NewOption) (core.Metrics, error) {
 	}, nil
 }
 
-// newTraceProvider creates a new trace.TracerProvider based on the provided address.
-//
 //nolint:ireturn // returns interface on intention.
-func newTraceProvider(
+func newTraceExporter(
 	ctx context.Context,
 	addr *url.URL,
 	metadata map[string]string,
-	appResource *resource.Resource,
-) (
-	trace.TracerProvider,
-	error,
-) {
-	if addr == nil {
-		return noopTrace.NewTracerProvider(), nil
-	}
-
-	var (
-		exporter sdktrace.SpanExporter
-		err      error
-	)
-
+) (sdktrace.SpanExporter, error) {
 	switch scheme := addr.Scheme; scheme {
-	case "http", "https":
-		opts := []otlptracehttp.Option{
-			otlptracehttp.WithEndpointURL(addr.String()),
-		}
-
-		if scheme == "https" {
-			opts = append(opts, otlptracehttp.WithTLSClientConfig(nil))
-		}
-		if len(metadata) > 0 {
-			opts = append(opts, otlptracehttp.WithHeaders(metadata))
-		}
-
-		exporter, err = otlptracehttp.New(ctx, opts...)
-
-	case "grpc":
-		opts := []otlptracegrpc.Option{
+	case protocolHTTP, protocolHTTPS:
+		return newHTTPTraceExporter(ctx, addr, metadata)
+	case protocolGRPC:
+		exporter, err := otlptracegrpc.New(ctx,
 			otlptracegrpc.WithEndpoint(addr.Host),
 			otlptracegrpc.WithInsecure(),
+			otlptracegrpc.WithHeaders(metadata),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("observability: failed to create gRPC trace exporter: %w", err)
 		}
 
-		if len(metadata) > 0 {
-			opts = append(opts, otlptracegrpc.WithHeaders(metadata))
-		}
-
-		exporter, err = otlptracegrpc.New(ctx, opts...)
-
+		return exporter, nil
 	default:
 		return nil, fmt.Errorf("unsupported trace exporter protocol: %s", scheme)
 	}
+}
 
+//nolint:ireturn // returns interface on intention.
+func newHTTPTraceExporter(
+	ctx context.Context,
+	addr *url.URL,
+	metadata map[string]string,
+) (sdktrace.SpanExporter, error) {
+	opts := []otlptracehttp.Option{
+		otlptracehttp.WithEndpoint(addr.Host),
+	}
+
+	switch addr.Scheme {
+	case protocolHTTP:
+		opts = append(opts, otlptracehttp.WithInsecure())
+	case protocolHTTPS:
+		opts = append(opts, otlptracehttp.WithTLSClientConfig(nil))
+	}
+
+	if addr.Path != "" && addr.Path != "/" {
+		opts = append(opts, otlptracehttp.WithURLPath(addr.Path))
+	}
+
+	if len(metadata) > 0 {
+		opts = append(opts, otlptracehttp.WithHeaders(metadata))
+	}
+
+	exporter, err := otlptracehttp.New(ctx, opts...)
+	if err != nil {
+		return nil, fmt.Errorf("observability: failed to create HTTP trace exporter: %w", err)
+	}
+
+	return exporter, nil
+}
+
+//nolint:ireturn // returns interface on intention.
+func newTraceProvider(
+	ctx context.Context,
+	params *newParams,
+	appResource *resource.Resource,
+) (trace.TracerProvider, error) {
+	if params.otlpAddr == nil {
+		return noopTrace.NewTracerProvider(), nil
+	}
+
+	exporter, err := newTraceExporter(ctx, params.otlpAddr, params.otlpMetadata)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create trace exporter: %w", err)
 	}
@@ -206,123 +244,157 @@ func newTraceProvider(
 		sdktrace.WithBatcher(
 			exporter,
 			sdktrace.WithMaxExportBatchSize(sdktrace.DefaultMaxExportBatchSize),
-			sdktrace.WithMaxExportBatchSize(sdktrace.DefaultMaxExportBatchSize),
 			sdktrace.WithBatchTimeout(sdktrace.DefaultScheduleDelay*time.Millisecond),
 		),
 		sdktrace.WithResource(appResource),
 	), nil
 }
 
-// newLogProvider creates a new [log.LoggerProvider] based on the provided address.
-//
+//nolint:ireturn // returns interface on intention.
+func newLogExporter(
+	ctx context.Context,
+	addr *url.URL,
+) (sdklog.Exporter, error) {
+	switch scheme := addr.Scheme; scheme {
+	case protocolHTTP, protocolHTTPS:
+		return newHTTPLogExporter(ctx, addr)
+	case protocolGRPC:
+		exporter, err := otlploggrpc.New(ctx,
+			otlploggrpc.WithEndpoint(addr.Host),
+			otlploggrpc.WithInsecure(),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("observability: failed to create gRPC log exporter: %w", err)
+		}
+
+		return exporter, nil
+	default:
+		return nil, fmt.Errorf("unsupported log exporter protocol: %s", scheme)
+	}
+}
+
+//nolint:ireturn // returns interface on intention.
+func newHTTPLogExporter(
+	ctx context.Context,
+	addr *url.URL,
+) (sdklog.Exporter, error) {
+	opts := []otlploghttp.Option{
+		otlploghttp.WithEndpoint(addr.Host),
+	}
+
+	switch addr.Scheme {
+	case protocolHTTP:
+		opts = append(opts, otlploghttp.WithInsecure())
+	case protocolHTTPS:
+		opts = append(opts, otlploghttp.WithTLSClientConfig(nil))
+	}
+
+	if addr.Path != "" && addr.Path != "/" {
+		opts = append(opts, otlploghttp.WithURLPath(addr.Path))
+	}
+
+	exporter, err := otlploghttp.New(ctx, opts...)
+	if err != nil {
+		return nil, fmt.Errorf("observability: failed to create HTTP log exporter: %w", err)
+	}
+
+	return exporter, nil
+}
+
 //nolint:ireturn // returns interface on intention.
 func newLogProvider(
 	ctx context.Context,
-	stderr io.Writer,
-	level slog.Level,
-	addr *url.URL,
+	params *newParams,
 	appResource *resource.Resource,
-) (
-	log.LoggerProvider,
-	error,
-) {
+) (log.LoggerProvider, error) {
 	opts := []sdklog.LoggerProviderOption{
 		sdklog.WithResource(appResource),
 	}
 
-	if addr != nil {
-		var (
-			exporter sdklog.Exporter
-			err      error
-		)
-
-		switch scheme := addr.Scheme; scheme {
-		case "http", "https":
-			opts := []otlploghttp.Option{
-				otlploghttp.WithEndpointURL(addr.String()),
-			}
-
-			if scheme == "https" {
-				opts = append(opts, otlploghttp.WithTLSClientConfig(nil))
-			}
-
-			exporter, err = otlploghttp.New(ctx, opts...)
-
-		case "grpc":
-			exporter, err = otlploggrpc.New(
-				ctx,
-				otlploggrpc.WithEndpoint(addr.Host),
-				otlploggrpc.WithInsecure(),
-			)
-
-		default:
-			return nil, fmt.Errorf("unsupported log exporter protocol: %s", scheme)
-		}
-
+	if params.otlpAddr != nil {
+		exporter, err := newLogExporter(ctx, params.otlpAddr)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create log exporter: %w", err)
 		}
 
-		opts = append(opts,
-			sdklog.WithProcessor(limitLevel(level, sdklog.NewBatchProcessor(exporter))),
-		)
+		proc := sdklog.NewBatchProcessor(exporter)
+		opts = append(opts, sdklog.WithProcessor(limitLevel(params.logLevel, proc)))
 	}
 
-	stderrLogger, err := stdoutlog.New(
-		stdoutlog.WithWriter(stderr),
-	)
+	stderrLogger, err := stdoutlog.New(stdoutlog.WithWriter(params.logWriter))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create stderr logger: %w", err)
 	}
-	opts = append(opts,
-		sdklog.WithProcessor(limitLevel(level, sdklog.NewSimpleProcessor(stderrLogger))),
-	)
+
+	stderrProc := sdklog.NewSimpleProcessor(stderrLogger)
+	opts = append(opts, sdklog.WithProcessor(limitLevel(params.logLevel, stderrProc)))
 
 	return sdklog.NewLoggerProvider(opts...), nil
 }
 
-func newMeterProvider(
+//nolint:ireturn // returns interface on intention.
+func newMeterExporter(
 	ctx context.Context,
 	addr *url.URL,
+) (sdkmetric.Exporter, error) {
+	switch scheme := addr.Scheme; scheme {
+	case protocolHTTP, protocolHTTPS:
+		return newHTTPMeterExporter(ctx, addr)
+	case protocolGRPC:
+		exporter, err := otlpmetricgrpc.New(ctx,
+			otlpmetricgrpc.WithEndpoint(addr.Host),
+			otlpmetricgrpc.WithInsecure(),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("observability: failed to create gRPC metric exporter: %w", err)
+		}
+
+		return exporter, nil
+	default:
+		return nil, fmt.Errorf("unsupported metric exporter protocol: %s", scheme)
+	}
+}
+
+//nolint:ireturn // returns interface on intention.
+func newHTTPMeterExporter(
+	ctx context.Context,
+	addr *url.URL,
+) (sdkmetric.Exporter, error) {
+	opts := []otlpmetrichttp.Option{
+		otlpmetrichttp.WithEndpoint(addr.Host),
+	}
+
+	switch addr.Scheme {
+	case protocolHTTP:
+		opts = append(opts, otlpmetrichttp.WithInsecure())
+	case protocolHTTPS:
+		opts = append(opts, otlpmetrichttp.WithTLSClientConfig(nil))
+	}
+
+	if addr.Path != "" && addr.Path != "/" {
+		opts = append(opts, otlpmetrichttp.WithURLPath(addr.Path))
+	}
+
+	exporter, err := otlpmetrichttp.New(ctx, opts...)
+	if err != nil {
+		return nil, fmt.Errorf("observability: failed to create HTTP metric exporter: %w", err)
+	}
+
+	return exporter, nil
+}
+
+//nolint:ireturn // returns interface on intention.
+func newMeterProvider(
+	ctx context.Context,
+	params *newParams,
 	appResource *resource.Resource,
-	reader sdkmetric.Reader,
-) (
-	metric.MeterProvider,
-	error,
-) {
+) (metric.MeterProvider, error) {
 	opts := []sdkmetric.Option{
 		sdkmetric.WithResource(appResource),
 	}
 
-	if addr != nil {
-		var (
-			exporter sdkmetric.Exporter
-			err      error
-		)
-
-		switch scheme := addr.Scheme; scheme {
-		case "http", "https":
-			opts := []otlpmetrichttp.Option{
-				otlpmetrichttp.WithEndpointURL(addr.String()),
-			}
-
-			if scheme == "https" {
-				opts = append(opts, otlpmetrichttp.WithTLSClientConfig(nil))
-			}
-
-			exporter, err = otlpmetrichttp.New(ctx, opts...)
-
-		case "grpc":
-			exporter, err = otlpmetrichttp.New(
-				ctx,
-				otlpmetrichttp.WithEndpoint(addr.Host),
-				otlpmetrichttp.WithInsecure(),
-			)
-
-		default:
-			return nil, fmt.Errorf("unsupported metric exporter protocol: %s", scheme)
-		}
-
+	if params.otlpAddr != nil {
+		exporter, err := newMeterExporter(ctx, params.otlpAddr)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create metric exporter: %w", err)
 		}
@@ -330,12 +402,11 @@ func newMeterProvider(
 		opts = append(opts, sdkmetric.WithReader(sdkmetric.NewPeriodicReader(exporter)))
 	}
 
-	if reader != nil {
-		opts = append(opts, sdkmetric.WithReader(reader))
+	if params.metricReader != nil {
+		opts = append(opts, sdkmetric.WithReader(params.metricReader))
 	}
 
 	return sdkmetric.NewMeterProvider(opts...), nil
-
 }
 
 func ignoreError[T any, E any](v T, _ E) T { return v }
